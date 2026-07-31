@@ -1,9 +1,16 @@
 import OpenAI from 'openai';
 import type { AIVoiceResponse } from '../types';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+let openaiClient: OpenAI | null = null;
+
+const getOpenAI = (): OpenAI => {
+  if (!openaiClient) {
+    openaiClient = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY || 'missing',
+    });
+  }
+  return openaiClient;
+};
 
 const CHINESE_SYSTEM_PROMPT = `You are Ling (灵), a friendly and encouraging AI Chinese language tutor. Your role is to:
 
@@ -44,7 +51,7 @@ export const generateAIResponse = async (
       { role: 'user', content: userMessage },
     ];
     
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAI().chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
       max_tokens: isVoiceCall ? 100 : 200,
@@ -95,7 +102,7 @@ const parseAIResponse = (text: string): { chinese: string; pinyin: string; engli
 
 export const transcribeAudio = async (audioBuffer: Buffer): Promise<string> => {
   try {
-    const transcription = await openai.audio.transcriptions.create({
+    const transcription = await getOpenAI().audio.transcriptions.create({
       file: new File([audioBuffer], 'audio.webm', { type: 'audio/webm' }),
       model: 'whisper-1',
       language: 'zh',
@@ -111,7 +118,7 @@ export const transcribeAudio = async (audioBuffer: Buffer): Promise<string> => {
 
 export const generateSpeech = async (text: string): Promise<Buffer> => {
   try {
-    const response = await openai.audio.speech.create({
+    const response = await getOpenAI().audio.speech.create({
       model: 'tts-1',
       voice: 'nova',
       input: text,
