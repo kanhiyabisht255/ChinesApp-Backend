@@ -15,5 +15,11 @@ export const validateEnvironment = (): void => {
   if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_URL) {
     warnings.push('FRONTEND_URL is missing; browser-based admin requests from another origin will be blocked');
   }
+  if (!process.env.GOOGLE_CLIENT_ID) {
+    warnings.push('GOOGLE_CLIENT_ID is missing; Google Sign-In will be unavailable');
+  }
+  if (!process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON && !process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64) {
+    warnings.push('Google Play service account is missing; Android purchases cannot be verified');
+  }
   warnings.forEach(message => console.warn(`⚠️ ${message}`));
 };

@@ -5,6 +5,7 @@ import {
   createGemOrder,
   getPlans,
   getGemPacks,
+  verifyGooglePlayPayment,
 } from '../controllers/payment.controller';
 import { authMiddleware } from '../middleware/auth';
 import { asyncHandler } from '../middleware/error';
@@ -17,5 +18,6 @@ router.get('/gem-packs', asyncHandler(getGemPacks));
 router.post('/premium/order', asyncHandler(authMiddleware), asyncHandler(createPremiumOrder));
 router.post('/gems/order', asyncHandler(authMiddleware), asyncHandler(createGemOrder));
 router.post('/verify', asyncHandler(authMiddleware), asyncHandler(verifyPayment));
+router.post('/google-play/verify', asyncHandler(authMiddleware), asyncHandler(verifyGooglePlayPayment));
 
 export default router;

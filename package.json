@@ -28,6 +28,7 @@
     "stripe": "^15.0.0",
     "razorpay": "^2.9.4",
     "firebase-admin": "^12.2.0",
+    "google-auth-library": "^9.15.1",
     "express-rate-limit": "^7.3.1",
     "express-validator": "^7.2.0",
     "multer": "^1.4.5-lts.1",

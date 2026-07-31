@@ -9,6 +9,8 @@ import { User, Subscription, GemTransaction } from '../models';
 import type { AuthRequest } from '../types';
 import { getAppConfig } from '../services/config.service';
 import mongoose from 'mongoose';
+import { verifyGooglePlayPurchase } from '../services/google-play.service';
+import { createError } from '../middleware/error';
 
 export const createPremiumOrder = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
@@ -129,6 +131,135 @@ const handleGemPurchase = async (userId: string, packId: string, paymentId: stri
   } finally {
     await session.endSession();
   }
+};
+
+const handleGooglePremiumPurchase = async (
+  userId: string,
+  planId: string,
+  paymentId: string,
+  verifiedExpiry?: Date,
+): Promise<void> => {
+  const plan = getPlanDetails(planId);
+  if (!plan) throw createError(400, 'Invalid Premium plan');
+
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const existing = await Subscription.findOne({ paymentId }).session(session);
+      if (existing && existing.userId !== userId) throw createError(409, 'Purchase already belongs to another user');
+
+      const user = await User.findById(userId).session(session);
+      if (!user) throw createError(404, 'User not found');
+
+      const startDate = new Date();
+      const storeEndDate = verifiedExpiry ? new Date(verifiedExpiry) : new Date(startDate);
+      if (!verifiedExpiry) storeEndDate.setDate(storeEndDate.getDate() + plan.days);
+      const currentExpiry = user.premiumExpiry ? new Date(user.premiumExpiry) : undefined;
+      const entitlementEnd = currentExpiry && currentExpiry > storeEndDate ? currentExpiry : storeEndDate;
+
+      await User.findByIdAndUpdate(userId, {
+        isPremium: true,
+        premiumExpiry: entitlementEnd,
+      }, { session });
+
+      if (existing) {
+        existing.status = 'active';
+        existing.endDate = entitlementEnd;
+        existing.amount = plan.amount;
+        await existing.save({ session });
+      } else {
+        await Subscription.create([{
+          userId,
+          planId,
+          status: 'active',
+          startDate,
+          endDate: entitlementEnd,
+          paymentId,
+          amount: plan.amount,
+        }], { session });
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
+};
+
+const handleGoogleGemPurchase = async (userId: string, packId: string, paymentId: string): Promise<void> => {
+  const pack = getGemPackDetails(packId);
+  if (!pack) throw createError(400, 'Invalid gem pack');
+
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const existing = await GemTransaction.findOne({ paymentId, type: 'purchase' }).session(session);
+      if (existing) {
+        if (existing.userId !== userId) throw createError(409, 'Purchase already belongs to another user');
+        return;
+      }
+
+      const totalGems = pack.gems + pack.bonus;
+      const user = await User.findByIdAndUpdate(
+        userId,
+        { $inc: { gems: totalGems } },
+        { new: true, session },
+      );
+      if (!user) throw createError(404, 'User not found');
+
+      await GemTransaction.create([{
+        userId,
+        type: 'purchase',
+        amount: totalGems,
+        balance: user.gems,
+        paymentId,
+        description: `Google Play purchase: ${pack.gems} gems + ${pack.bonus} bonus`,
+      }], { session });
+    });
+  } finally {
+    await session.endSession();
+  }
+};
+
+export const verifyGooglePlayPayment = async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const { productId, purchaseToken, orderId, productType, planId, packId } = req.body;
+  if (
+    typeof productId !== 'string' || !productId ||
+    typeof purchaseToken !== 'string' || purchaseToken.length < 10 || purchaseToken.length > 5000 ||
+    !['subs', 'inapp'].includes(productType) ||
+    (!!planId === !!packId)
+  ) {
+    throw createError(400, 'Complete Google Play purchase details are required');
+  }
+
+  const kind = planId ? 'premium' : 'gems';
+  const id = String(planId || packId);
+  const verified = await verifyGooglePlayPurchase({
+    userId: authReq.userId!,
+    kind,
+    id,
+    productId,
+    productType,
+    purchaseToken,
+    orderId: typeof orderId === 'string' ? orderId : undefined,
+  });
+
+  if (kind === 'premium') {
+    await handleGooglePremiumPurchase(authReq.userId!, id, verified.paymentId, verified.expiryTime);
+  } else {
+    await handleGoogleGemPurchase(authReq.userId!, id, verified.paymentId);
+  }
+
+  const user = await User.findById(authReq.userId!).select('isPremium premiumExpiry gems').lean();
+  if (!user) throw createError(404, 'User not found');
+  res.json({
+    success: true,
+    message: 'Google Play purchase verified successfully',
+    data: {
+      isPremium: user.isPremium,
+      premiumExpiry: user.premiumExpiry,
+      gems: user.gems,
+    },
+  });
 };
 
 export const createGemOrder = async (req: Request, res: Response): Promise<void> => {

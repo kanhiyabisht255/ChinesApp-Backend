@@ -100,6 +100,7 @@ src/
 | GET | `/api/payment/plans` | Get subscription plans |
 | POST | `/api/payment/premium/order` | Create premium order |
 | POST | `/api/payment/verify` | Verify payment |
+| POST | `/api/payment/google-play/verify` | Verify Android subscription or one-time purchase |
 
 ## Setup
 
@@ -139,6 +140,8 @@ npm run dev
 | `MSG91_AUTH_KEY` | MSG91 API key |
 | `OPENAI_API_KEY` | OpenAI API key |
 | `GOOGLE_CLIENT_ID` | Google OAuth web client ID used to verify ID tokens |
+| `GOOGLE_PLAY_PACKAGE_NAME` | Play Console Android package (`com.chinesapp.learn`) |
+| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | Service-account JSON with Play Console API access |
 | `RAZORPAY_KEY_ID` | Razorpay Key ID |
 | `RAZORPAY_KEY_SECRET` | Razorpay Key Secret |
 | `ADMIN_EMAIL` | Admin login email |
