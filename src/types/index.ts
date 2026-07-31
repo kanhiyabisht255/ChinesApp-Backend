@@ -106,6 +106,8 @@ export interface ICourse {
   outcomes: string[];
   supportedLanguages: string[];
   isPublished: boolean;
+  source?: 'packaged' | 'admin';
+  contentVersion?: string;
   translations?: Map<string, Map<string, string>>;
   createdAt: Date;
 }
@@ -133,6 +135,8 @@ export interface ILesson {
   xpReward: number;
   isPremium: boolean;
   isPublished: boolean;
+  source?: 'packaged' | 'admin';
+  contentVersion?: string;
   objectives: string[];
   vocab: IVocabItem[];
   grammarPoints?: IGrammarPoint[];
@@ -185,6 +189,8 @@ export interface IScenario {
   learningGoals: string[];
   systemPrompt?: string;
   isPublished: boolean;
+  source?: 'packaged' | 'admin';
+  contentVersion?: string;
   translations?: Map<string, Map<string, string>>;
   createdAt: Date;
 }

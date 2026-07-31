@@ -13,6 +13,10 @@ import {
 } from '../models';
 import { generateToken } from '../utils/jwt';
 import { getAppConfig, updateLocalConfig } from '../services/config.service';
+import {
+  getCurriculumStats as loadCurriculumStats,
+  syncCurriculum,
+} from '../services/curriculum.service';
 import type { AppConfig } from '../types';
 
 const slugify = (value: string): string => value
@@ -365,6 +369,21 @@ export const deleteCourseLesson = async (req: Request, res: Response): Promise<v
   }
   await Course.findOneAndUpdate({ _id: lesson.courseId }, { $inc: { totalLessons: -1 } });
   res.json({ success: true, message: 'Lesson deleted' });
+};
+
+export const getCurriculumStats = async (_req: Request, res: Response): Promise<void> => {
+  const stats = await loadCurriculumStats();
+  res.json({ success: true, data: stats });
+};
+
+export const syncPackagedCurriculum = async (_req: Request, res: Response): Promise<void> => {
+  const catalog = await syncCurriculum();
+  const stats = await loadCurriculumStats();
+  res.json({
+    success: true,
+    message: `Curriculum ${catalog.version} synchronized`,
+    data: stats,
+  });
 };
 
 export const getAllScenarios = async (req: Request, res: Response): Promise<void> => {

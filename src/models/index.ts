@@ -141,6 +141,8 @@ const courseSchema = new Schema<ICourseDoc>({
   outcomes: [{ type: String }],
   supportedLanguages: [{ type: String }],
   isPublished: { type: Boolean, default: true },
+  source: { type: String, enum: ['packaged', 'admin'], default: 'admin', index: true },
+  contentVersion: { type: String, default: '1' },
   translations: { type: Map, of: Map, default: {} },
 }, { timestamps: true });
 
@@ -161,6 +163,8 @@ const lessonSchema = new Schema<ILessonDoc>({
   xpReward: { type: Number, default: 20 },
   isPremium: { type: Boolean, default: false },
   isPublished: { type: Boolean, default: true },
+  source: { type: String, enum: ['packaged', 'admin'], default: 'admin', index: true },
+  contentVersion: { type: String, default: '1' },
   objectives: [{ type: String }],
   vocab: [vocabItemSchema],
   grammarPoints: [grammarPointSchema],
@@ -185,6 +189,8 @@ const scenarioSchema = new Schema<IScenarioDoc>({
   learningGoals: [{ type: String }],
   systemPrompt: { type: String },
   isPublished: { type: Boolean, default: true },
+  source: { type: String, enum: ['packaged', 'admin'], default: 'admin', index: true },
+  contentVersion: { type: String, default: '1' },
   translations: { type: Map, of: Map, default: {} },
 }, { timestamps: true });
 

@@ -23,6 +23,8 @@ import {
   createCourseLesson,
   updateCourseLesson,
   deleteCourseLesson,
+  getCurriculumStats,
+  syncPackagedCurriculum,
   getAllScenarios,
   createScenario,
   updateScenario,
@@ -61,6 +63,8 @@ router.get('/courses/:courseId/lessons', asyncHandler(getCourseLessons));
 router.post('/courses/:courseId/lessons', asyncHandler(createCourseLesson));
 router.put('/lessons/:id', asyncHandler(updateCourseLesson));
 router.delete('/lessons/:id', asyncHandler(deleteCourseLesson));
+router.get('/curriculum/stats', asyncHandler(getCurriculumStats));
+router.post('/curriculum/sync', asyncHandler(syncPackagedCurriculum));
 
 router.get('/scenarios', asyncHandler(getAllScenarios));
 router.post('/scenarios', asyncHandler(createScenario));
