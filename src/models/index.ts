@@ -48,6 +48,7 @@ const userSchema = new Schema<IUserDoc>({
   todayMinutes: { type: Number, default: 0 },
   hskLevel: { type: Number, default: 1 },
   googleId: { type: String, sparse: true },
+  isAdmin: { type: Boolean, default: false },
 }, { timestamps: true });
 
 const progressSchema = new Schema<IProgressDoc>({

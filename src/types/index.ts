@@ -16,6 +16,7 @@ export interface IUser {
   todayMinutes: number;
   hskLevel: number;
   googleId?: string;
+  isAdmin?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

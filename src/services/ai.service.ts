@@ -38,7 +38,7 @@ export const generateAIResponse = async (
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: CHINESE_SYSTEM_PROMPT },
       ...context.map((msg, i) => ({
-        role: i % 2 === 0 ? 'user' : 'assistant' as const,
+        role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
         content: msg,
       })),
       { role: 'user', content: userMessage },

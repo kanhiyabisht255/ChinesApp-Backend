@@ -8,7 +8,7 @@ const razorpay = new Razorpay({
 });
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2024-06-20',
+  apiVersion: '2024-06-20' as Stripe.LatestApiVersion,
 });
 
 const PLANS = {
@@ -53,7 +53,7 @@ export const createRazorpayOrder = async (
   
   return {
     orderId: order.id,
-    amount: order.amount / 100,
+    amount: Number(order.amount) / 100,
     currency: order.currency,
   };
 };

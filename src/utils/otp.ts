@@ -72,7 +72,7 @@ export const sendOTPviaMSG91 = async (phone: string, otp: string): Promise<{ suc
       }),
     });
     
-    const data = await response.json();
+    const data = await response.json() as { type?: string; message?: string };
     
     if (response.ok && data.type === 'success') {
       storeOTP(phone, otp);

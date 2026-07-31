@@ -47,7 +47,7 @@ export const getAppConfig = async (): Promise<AppConfig> => {
     );
     
     if (response.ok) {
-      const data = await response.json();
+      const data = await response.json() as Partial<AppConfig>;
       cachedConfig = { ...DEFAULT_CONFIG, ...data };
       lastFetchTime = Date.now();
     }
@@ -64,7 +64,8 @@ export const updateLocalConfig = (updates: Partial<AppConfig>): void => {
 
 export const getFeatureFlag = async (feature: keyof AppConfig['features']): Promise<boolean> => {
   const config = await getAppConfig();
-  return config.features[feature] ?? true;
+  const value = config.features[feature];
+  return Array.isArray(value) ? value.length > 0 : value ?? true;
 };
 
 export const isMaintenanceMode = async (): Promise<boolean> => {

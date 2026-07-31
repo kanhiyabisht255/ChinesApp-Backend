@@ -76,7 +76,69 @@ export const premiumMiddleware = async (
       return;
     }
     
-    authReq.user = user;
+    authReq.user = {
+      _id: user._id.toString(),
+      phone: user.phone,
+      name: user.name,
+      email: user.email,
+      avatar: user.avatar,
+      isPremium: user.isPremium,
+      premiumExpiry: user.premiumExpiry,
+      gems: user.gems,
+      xp: user.xp,
+      streak: user.streak,
+      lastStreakDate: user.lastStreakDate,
+      dailyGoal: user.dailyGoal,
+      todayMinutes: user.todayMinutes,
+      hskLevel: user.hskLevel,
+      googleId: user.googleId,
+      isAdmin: user.isAdmin,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+    next();
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const adminMiddleware = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const authReq = req as AuthRequest;
+    if (!authReq.userId) {
+      res.status(401).json({ success: false, message: 'Authentication required' });
+      return;
+    }
+    const { User } = await import('../models');
+    const user = await User.findById(authReq.userId);
+    if (!user || !user.isAdmin) {
+      res.status(403).json({ success: false, message: 'Admin access required' });
+      return;
+    }
+    authReq.user = {
+      _id: user._id.toString(),
+      phone: user.phone,
+      name: user.name,
+      email: user.email,
+      avatar: user.avatar,
+      isPremium: user.isPremium,
+      premiumExpiry: user.premiumExpiry,
+      gems: user.gems,
+      xp: user.xp,
+      streak: user.streak,
+      lastStreakDate: user.lastStreakDate,
+      dailyGoal: user.dailyGoal,
+      todayMinutes: user.todayMinutes,
+      hskLevel: user.hskLevel,
+      googleId: user.googleId,
+      isAdmin: user.isAdmin,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
     next();
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
