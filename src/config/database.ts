@@ -3,11 +3,21 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/chinesapp';
+export const getMongoUri = (): string => {
+  const mongoUri = process.env.MONGODB_URI?.trim() || process.env.MONGO_URL?.trim();
+
+  if (!mongoUri) {
+    throw new Error(
+      'MongoDB connection string is missing. Set MONGODB_URI (recommended) or MONGO_URL in the service environment variables.'
+    );
+  }
+
+  return mongoUri;
+};
 
 export const connectDB = async (): Promise<void> => {
   try {
-    const conn = await mongoose.connect(MONGODB_URI);
+    const conn = await mongoose.connect(getMongoUri());
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
   } catch (error) {
     console.error('❌ MongoDB Connection Error:', error);

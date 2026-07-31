@@ -133,6 +133,7 @@ npm run dev
 |----------|-------------|
 | `PORT` | Server port (default: 5000) |
 | `MONGODB_URI` | MongoDB connection string |
+| `MONGO_URL` | Railway MongoDB URL fallback (optional) |
 | `JWT_SECRET` | JWT signing secret |
 | `MSG91_AUTH_KEY` | MSG91 API key |
 | `OPENAI_API_KEY` | OpenAI API key |
@@ -142,11 +143,14 @@ npm run dev
 
 ## Deployment (Railway)
 
-1. Create Railway account
-2. Create new project
-3. Add MongoDB (or use existing)
-4. Deploy from GitHub
-5. Set environment variables in Railway dashboard
+1. Create a Railway project and deploy the backend from GitHub.
+2. Add a MongoDB service to the same Railway project, or create a MongoDB Atlas cluster.
+3. In the backend service's **Variables**, set `MONGODB_URI`:
+   - Railway MongoDB: use a reference variable such as `${{MongoDB.MONGO_URL}}` (replace `MongoDB` if the service has a different name).
+   - MongoDB Atlas: paste the Atlas `mongodb+srv://...` connection string.
+4. Set the other required environment variables, then redeploy the backend service.
+
+Do not use `localhost` in `MONGODB_URI` on Railway. `localhost` points to the backend container itself, where MongoDB is not running.
 
 ## License
 

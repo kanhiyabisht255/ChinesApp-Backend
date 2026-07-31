@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import { Course, Lesson, Scenario } from '../models';
+import { getMongoUri } from '../config/database';
 
 dotenv.config();
 
@@ -50,9 +51,7 @@ const LESSONS_DATA = [
 ];
 
 export const seedDatabase = async (): Promise<void> => {
-  const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/chinesapp';
-  
-  await mongoose.connect(MONGODB_URI);
+  await mongoose.connect(getMongoUri());
   console.log('Connected to MongoDB');
   
   await Scenario.deleteMany({});
