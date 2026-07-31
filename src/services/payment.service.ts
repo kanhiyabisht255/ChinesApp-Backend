@@ -2,14 +2,27 @@ import Razorpay from 'razorpay';
 import Stripe from 'stripe';
 import crypto from 'crypto';
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || '',
-  key_secret: process.env.RAZORPAY_KEY_SECRET || '',
-});
+let razorpayClient: Razorpay | null = null;
+let stripeClient: Stripe | null = null;
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2024-06-20' as Stripe.LatestApiVersion,
-});
+const getRazorpay = (): Razorpay => {
+  if (!razorpayClient) {
+    razorpayClient = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID || 'placeholder',
+      key_secret: process.env.RAZORPAY_KEY_SECRET || 'placeholder',
+    });
+  }
+  return razorpayClient;
+};
+
+const getStripe = (): Stripe => {
+  if (!stripeClient) {
+    stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY || 'placeholder', {
+      apiVersion: '2024-06-20' as Stripe.LatestApiVersion,
+    });
+  }
+  return stripeClient;
+};
 
 const PLANS = {
   monthly: { amount: 499, currency: 'INR', days: 30, name: 'Monthly Premium' },
@@ -45,7 +58,7 @@ export const createRazorpayOrder = async (
     receipt = `gems_${userId}_${id}_${Date.now()}`;
   }
   
-  const order = await razorpay.orders.create({
+  const order = await getRazorpay().orders.create({
     amount: amount * 100,
     currency: 'INR',
     receipt,
@@ -89,7 +102,7 @@ export const createStripePaymentIntent = async (
     amount = pack.amount;
   }
   
-  const paymentIntent = await stripe.paymentIntents.create({
+  const paymentIntent = await getStripe().paymentIntents.create({
     amount: amount * 100,
     currency: 'usd',
     metadata: { type, id, userId },
