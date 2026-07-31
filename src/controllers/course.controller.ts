@@ -23,6 +23,23 @@ const hasPremiumAccess = async (req: Request): Promise<boolean> => {
   return hasActivePremium(user);
 };
 
+const redactPremiumLesson = (lesson: Record<string, any>): Record<string, any> => ({
+  ...lesson,
+  objectives: [],
+  vocab: [],
+  grammarPoints: [],
+  sentences: [],
+  exercises: [],
+  isLocked: true,
+});
+
+const redactPremiumScenario = (scenario: Record<string, any>): Record<string, any> => ({
+  ...scenario,
+  dialogues: [],
+  systemPrompt: undefined,
+  isLocked: true,
+});
+
 export const getCourses = async (req: Request, res: Response): Promise<void> => {
   const language = await getRequestLanguage(req);
   const courses = await Course.find({ isPublished: true }).sort({ order: 1 });
@@ -48,7 +65,14 @@ export const getLessons = async (req: Request, res: Response): Promise<void> => 
   const course = await Course.findOne(idOrSlugQuery(courseId)).select('_id');
   const resolvedCourseId = course?._id.toString() || courseId;
   const lessons = await Lesson.find({ courseId: resolvedCourseId, isPublished: true }).sort({ order: 1 });
-  res.json({ success: true, data: lessons.map(lesson => localizeLesson(lesson, language)) });
+  const premiumAccess = await hasPremiumAccess(req);
+  res.json({
+    success: true,
+    data: lessons.map(lesson => {
+      const localized = localizeLesson(lesson, language);
+      return lesson.isPremium && !premiumAccess ? redactPremiumLesson(localized) : localized;
+    }),
+  });
 };
 
 export const getLesson = async (req: Request, res: Response): Promise<void> => {
@@ -115,7 +139,14 @@ export const completeLesson = async (req: Request, res: Response): Promise<void>
 export const getScenarios = async (req: Request, res: Response): Promise<void> => {
   const language = await getRequestLanguage(req);
   const scenarios = await Scenario.find({ isPublished: true }).sort({ order: 1 });
-  res.json({ success: true, data: scenarios.map(scenario => localizeScenario(scenario, language)) });
+  const premiumAccess = await hasPremiumAccess(req);
+  res.json({
+    success: true,
+    data: scenarios.map(scenario => {
+      const localized = localizeScenario(scenario, language);
+      return scenario.isPremium && !premiumAccess ? redactPremiumScenario(localized) : localized;
+    }),
+  });
 };
 
 export const getScenario = async (req: Request, res: Response): Promise<void> => {
