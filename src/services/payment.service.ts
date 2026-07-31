@@ -2,18 +2,24 @@ import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import type { AppConfig } from '../types';
 import { getAppConfig } from './config.service';
+import { getIntegrationSecret } from './integration-secrets.service';
 
 let razorpayClient: Razorpay | null = null;
+let razorpayCredentialKey = '';
 
-const getRazorpay = (): Razorpay => {
-  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+const getRazorpay = async (): Promise<Razorpay> => {
+  const keyId = await getIntegrationSecret('RAZORPAY_KEY_ID');
+  const keySecret = await getIntegrationSecret('RAZORPAY_KEY_SECRET');
+  if (!keyId || !keySecret) {
     throw new Error('Razorpay is not configured');
   }
-  if (!razorpayClient) {
+  const credentialKey = `${keyId}:${keySecret}`;
+  if (!razorpayClient || razorpayCredentialKey !== credentialKey) {
     razorpayClient = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
+      key_id: keyId,
+      key_secret: keySecret,
     });
+    razorpayCredentialKey = credentialKey;
   }
   return razorpayClient;
 };
@@ -52,7 +58,7 @@ export const createRazorpayOrder = async (
     receipt = `gems_${userId}_${id}_${Date.now()}`;
   }
   
-  const order = await getRazorpay().orders.create({
+  const order = await (await getRazorpay()).orders.create({
     amount: amount * 100,
     currency: 'INR',
     receipt,
@@ -74,7 +80,7 @@ export const verifyRazorpayPayment = async (
   purchaseId: string,
   userId: string
 ): Promise<{ valid: boolean; amount?: number }> => {
-  const secret = process.env.RAZORPAY_KEY_SECRET;
+  const secret = await getIntegrationSecret('RAZORPAY_KEY_SECRET');
   if (!secret || !orderId || !paymentId || !signature) return { valid: false };
   const body = `${orderId}|${paymentId}`;
   const expectedSignature = crypto
@@ -88,9 +94,10 @@ export const verifyRazorpayPayment = async (
     return { valid: false };
   }
 
+  const razorpay = await getRazorpay();
   const [order, payment] = await Promise.all([
-    getRazorpay().orders.fetch(orderId),
-    getRazorpay().payments.fetch(paymentId),
+    razorpay.orders.fetch(orderId),
+    razorpay.payments.fetch(paymentId),
   ]);
   const knownPurchase = purchaseType === 'premium'
     ? getPlanDetails(purchaseId)

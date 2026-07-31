@@ -18,6 +18,12 @@ import {
   syncCurriculum,
 } from '../services/curriculum.service';
 import type { AppConfig } from '../types';
+import { createError } from '../middleware/error';
+import {
+  getIntegrationSecretStatus,
+  updateIntegrationSecrets,
+  type IntegrationSecretUpdates,
+} from '../services/integration-secrets.service';
 
 const slugify = (value: string): string => value
   .toLowerCase()
@@ -429,4 +435,41 @@ export const updateConfig = async (req: Request, res: Response): Promise<void> =
   const updates = req.body as Partial<AppConfig>;
   const config = await updateLocalConfig(updates);
   res.json({ success: true, message: 'Config updated', data: config });
+};
+
+const integrationFieldMap: Record<string, keyof IntegrationSecretUpdates> = {
+  openaiApiKey: 'OPENAI_API_KEY',
+  googleClientId: 'GOOGLE_CLIENT_ID',
+  googlePlayServiceAccountJson: 'GOOGLE_PLAY_SERVICE_ACCOUNT_JSON',
+  msg91AuthKey: 'MSG91_AUTH_KEY',
+  msg91TemplateId: 'MSG91_TEMPLATE_ID',
+  msg91SenderId: 'MSG91_SENDER_ID',
+  razorpayKeyId: 'RAZORPAY_KEY_ID',
+  razorpayKeySecret: 'RAZORPAY_KEY_SECRET',
+};
+
+const integrationStatusPayload = async () => {
+  const status = await getIntegrationSecretStatus();
+  return {
+    encryptionConfigured: Boolean(process.env.ADMIN_CONFIG_ENCRYPTION_KEY?.trim()),
+    secrets: Object.fromEntries(Object.entries(integrationFieldMap).map(([field, secretName]) => [field, status[secretName]])),
+  };
+};
+
+export const getIntegrations = async (req: Request, res: Response): Promise<void> => {
+  res.json({ success: true, data: await integrationStatusPayload() });
+};
+
+export const updateIntegrations = async (req: Request, res: Response): Promise<void> => {
+  const updates: IntegrationSecretUpdates = {};
+  Object.entries(integrationFieldMap).forEach(([field, secretName]) => {
+    const value = req.body?.[field];
+    if (value === null) updates[secretName] = null;
+    else if (typeof value === 'string' && value.trim()) {
+      if (value.length > 100_000) throw createError(400, `${field} is too large`);
+      updates[secretName] = value.trim();
+    }
+  });
+  await updateIntegrationSecrets(updates);
+  res.json({ success: true, message: 'Integration settings updated', data: await integrationStatusPayload() });
 };

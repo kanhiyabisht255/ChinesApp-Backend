@@ -23,6 +23,16 @@ const DEFAULT_CONFIG: AppConfig = {
     yearly: 2999,
     lifetime: 7999,
   },
+  ads: {
+    enabled: true,
+    bannerEnabled: true,
+    interstitialEnabled: true,
+    rewardedEnabled: true,
+    interstitialCooldownSeconds: 180,
+    bannerAdUnitId: '',
+    interstitialAdUnitId: '',
+    rewardedAdUnitId: '',
+  },
 };
 
 let cachedConfig: AppConfig = DEFAULT_CONFIG;
@@ -35,6 +45,7 @@ const mergeConfig = (base: AppConfig, updates: Partial<AppConfig>): AppConfig =>
   features: { ...base.features, ...(updates.features || {}) },
   aiConfig: { ...base.aiConfig, ...(updates.aiConfig || {}) },
   pricing: { ...base.pricing, ...(updates.pricing || {}) },
+  ads: { ...base.ads, ...(updates.ads || {}) },
 });
 
 export const getAppConfig = async (): Promise<AppConfig> => {
@@ -68,6 +79,19 @@ export const updateLocalConfig = async (updates: Partial<AppConfig>): Promise<Ap
       monthly: Math.max(1, Math.min(Number(merged.pricing.monthly) || current.pricing.monthly, 1_000_000)),
       yearly: Math.max(1, Math.min(Number(merged.pricing.yearly) || current.pricing.yearly, 1_000_000)),
       lifetime: Math.max(1, Math.min(Number(merged.pricing.lifetime) || current.pricing.lifetime, 1_000_000)),
+    },
+    ads: {
+      enabled: Boolean(merged.ads.enabled),
+      bannerEnabled: Boolean(merged.ads.bannerEnabled),
+      interstitialEnabled: Boolean(merged.ads.interstitialEnabled),
+      rewardedEnabled: Boolean(merged.ads.rewardedEnabled),
+      interstitialCooldownSeconds: Math.max(
+        30,
+        Math.min(Math.round(Number(merged.ads.interstitialCooldownSeconds) || current.ads.interstitialCooldownSeconds), 3600),
+      ),
+      bannerAdUnitId: String(merged.ads.bannerAdUnitId || '').trim().slice(0, 200),
+      interstitialAdUnitId: String(merged.ads.interstitialAdUnitId || '').trim().slice(0, 200),
+      rewardedAdUnitId: String(merged.ads.rewardedAdUnitId || '').trim().slice(0, 200),
     },
   };
   await AppSetting.findOneAndUpdate(

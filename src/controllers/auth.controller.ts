@@ -5,6 +5,7 @@ import { generateToken } from '../utils/jwt';
 import type { AuthRequest } from '../types';
 import { normalizeLanguageCode } from '../services/localization.service';
 import { hasActivePremium } from '../services/entitlement.service';
+import { getIntegrationSecret } from '../services/integration-secrets.service';
 
 export const sendOTP = async (req: Request, res: Response): Promise<void> => {
   const phone = normalizePhone(req.body.phone);
@@ -110,7 +111,7 @@ export const verifyOTPAndLogin = async (req: Request, res: Response): Promise<vo
 
 export const googleAuth = async (req: Request, res: Response): Promise<void> => {
   const { idToken, nativeLanguage, learningGoal } = req.body;
-  const googleClientId = process.env.GOOGLE_CLIENT_ID;
+  const googleClientId = await getIntegrationSecret('GOOGLE_CLIENT_ID');
 
   if (!idToken) {
     res.status(400).json({ success: false, message: 'Google ID token required' });

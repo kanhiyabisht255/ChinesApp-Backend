@@ -31,6 +31,8 @@ import {
   deleteScenario,
   getConfig,
   updateConfig,
+  getIntegrations,
+  updateIntegrations,
 } from '../controllers/admin.controller';
 
 const router = Router();
@@ -73,5 +75,7 @@ router.delete('/scenarios/:id', asyncHandler(deleteScenario));
 
 router.get('/config', asyncHandler(getConfig));
 router.put('/config', asyncHandler(updateConfig));
+router.get('/integrations', asyncHandler(getIntegrations));
+router.put('/integrations', asyncHandler(updateIntegrations));
 
 export default router;

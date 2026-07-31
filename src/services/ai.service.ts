@@ -1,8 +1,10 @@
 import OpenAI, { toFile } from 'openai';
 import { getLanguageName, normalizeLanguageCode } from './localization.service';
 import { getAppConfig } from './config.service';
+import { getIntegrationSecret } from './integration-secrets.service';
 
 let openaiClient: OpenAI | null = null;
+let openaiClientKey = '';
 
 export class AIServiceError extends Error {
   statusCode: number;
@@ -16,17 +18,18 @@ export class AIServiceError extends Error {
   }
 }
 
-const getOpenAI = (): OpenAI => {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
+const getOpenAI = async (): Promise<OpenAI> => {
+  const apiKey = await getIntegrationSecret('OPENAI_API_KEY');
   if (!apiKey || apiKey.startsWith('sk-your-')) {
     throw new AIServiceError('AI tutor is not configured yet');
   }
-  if (!openaiClient) {
+  if (!openaiClient || openaiClientKey !== apiKey) {
     openaiClient = new OpenAI({
       apiKey,
       timeout: 30_000,
       maxRetries: 1,
     });
+    openaiClientKey = apiKey;
   }
   return openaiClient;
 };
@@ -85,7 +88,7 @@ export const generateAIResponse = async (
       { role: 'user', content: userMessage },
     ];
     
-    const completion = await getOpenAI().chat.completions.create({
+    const completion = await (await getOpenAI()).chat.completions.create({
       model: appConfig.aiConfig.model,
       messages,
       max_tokens: options.isVoiceCall
@@ -136,7 +139,7 @@ export const transcribeAudio = async (
 ): Promise<string> => {
   try {
     const appConfig = await getAppConfig();
-    const transcription = await getOpenAI().audio.transcriptions.create({
+    const transcription = await (await getOpenAI()).audio.transcriptions.create({
       file: await toFile(audioBuffer, fileName, { type: mimeType }),
       model: appConfig.aiConfig.transcriptionModel,
       response_format: 'json',
@@ -156,7 +159,7 @@ export const transcribeAudio = async (
 export const generateSpeech = async (text: string): Promise<Buffer> => {
   try {
     const appConfig = await getAppConfig();
-    const response = await getOpenAI().audio.speech.create({
+    const response = await (await getOpenAI()).audio.speech.create({
       model: appConfig.aiConfig.ttsModel,
       voice: appConfig.aiConfig.ttsVoice,
       input: text,

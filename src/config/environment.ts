@@ -21,5 +21,8 @@ export const validateEnvironment = (): void => {
   if (!process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON && !process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64) {
     warnings.push('Google Play service account is missing; Android purchases cannot be verified');
   }
+  if (!process.env.ADMIN_CONFIG_ENCRYPTION_KEY) {
+    warnings.push('ADMIN_CONFIG_ENCRYPTION_KEY is missing; integration secrets cannot be saved from admin');
+  }
   warnings.forEach(message => console.warn(`⚠️ ${message}`));
 };

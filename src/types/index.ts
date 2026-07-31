@@ -268,4 +268,14 @@ export interface AppConfig {
     yearly: number;
     lifetime: number;
   };
+  ads: {
+    enabled: boolean;
+    bannerEnabled: boolean;
+    interstitialEnabled: boolean;
+    rewardedEnabled: boolean;
+    interstitialCooldownSeconds: number;
+    bannerAdUnitId: string;
+    interstitialAdUnitId: string;
+    rewardedAdUnitId: string;
+  };
 }

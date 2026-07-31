@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { OTPCode } from '../models';
+import { getIntegrationSecret } from '../services/integration-secrets.service';
 
 const isProduction = (): boolean => process.env.NODE_ENV === 'production';
 
@@ -67,9 +68,9 @@ export const verifyOTP = async (phone: string, inputOTP: string): Promise<{ vali
 };
 
 export const sendOTPviaMSG91 = async (phone: string, otp: string): Promise<{ success: boolean; message: string }> => {
-  const authKey = process.env.MSG91_AUTH_KEY;
-  const templateId = process.env.MSG91_TEMPLATE_ID;
-  const senderId = process.env.MSG91_SENDER_ID || 'CHNAPP';
+  const authKey = await getIntegrationSecret('MSG91_AUTH_KEY');
+  const templateId = await getIntegrationSecret('MSG91_TEMPLATE_ID');
+  const senderId = await getIntegrationSecret('MSG91_SENDER_ID') || 'CHNAPP';
   
   if (!authKey || authKey === 'your-msg91-auth-key' || !templateId) {
     if (isProduction()) {

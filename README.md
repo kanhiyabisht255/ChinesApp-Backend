@@ -142,6 +142,7 @@ npm run dev
 | `GOOGLE_CLIENT_ID` | Google OAuth web client ID used to verify ID tokens |
 | `GOOGLE_PLAY_PACKAGE_NAME` | Play Console Android package (`com.chinesapp.learn`) |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | Service-account JSON with Play Console API access |
+| `ADMIN_CONFIG_ENCRYPTION_KEY` | Master key used to encrypt integration secrets saved from admin |
 | `RAZORPAY_KEY_ID` | Razorpay Key ID |
 | `RAZORPAY_KEY_SECRET` | Razorpay Key Secret |
 | `ADMIN_EMAIL` | Admin login email |
@@ -155,6 +156,8 @@ npm run dev
    - Railway MongoDB: use a reference variable such as `${{MongoDB.MONGO_URL}}` (replace `MongoDB` if the service has a different name).
    - MongoDB Atlas: paste the Atlas `mongodb+srv://...` connection string.
 4. Set `JWT_SECRET`, `OTP_SECRET`, `OPENAI_API_KEY`, admin credentials, `FRONTEND_URL`, and any enabled auth/payment provider variables, then redeploy.
+
+After `ADMIN_CONFIG_ENCRYPTION_KEY` is configured, OpenAI, Google, MSG91 and Razorpay credentials can be added or rotated from the admin panel's **API Keys** page. The browser only receives configured/masked status; raw saved secrets are never returned. Do not change the encryption key after saving secrets, otherwise the stored values cannot be decrypted.
 
 Do not use `localhost` in `MONGODB_URI` on Railway. `localhost` points to the backend container itself, where MongoDB is not running.
 

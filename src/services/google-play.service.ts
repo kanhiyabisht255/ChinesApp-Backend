@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { GoogleAuth } from 'google-auth-library';
 import { createError } from '../middleware/error';
+import { getIntegrationSecret } from './integration-secrets.service';
 
 type ProductType = 'subs' | 'inapp';
 type PurchaseKind = 'premium' | 'gems';
@@ -46,9 +47,9 @@ const productCatalog = (): ProductDefinition[] => [
   { id: 'g5', kind: 'gems', productId: envProduct('PLAY_GEMS_8000_ID', 'chinesapp_gems_8000'), productType: 'inapp' },
 ];
 
-const parseServiceAccount = (): Record<string, unknown> => {
-  const rawJson = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON?.trim();
-  const rawBase64 = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64?.trim();
+const parseServiceAccount = async (): Promise<Record<string, unknown>> => {
+  const rawJson = await getIntegrationSecret('GOOGLE_PLAY_SERVICE_ACCOUNT_JSON');
+  const rawBase64 = await getIntegrationSecret('GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64');
   if (!rawJson && !rawBase64) {
     throw createError(503, 'Google Play verification is not configured');
   }
@@ -73,7 +74,7 @@ const getDefinition = (kind: PurchaseKind, id: string): ProductDefinition => {
 
 const requestGooglePlay = async <T>(url: string): Promise<T> => {
   const auth = new GoogleAuth({
-    credentials: parseServiceAccount(),
+    credentials: await parseServiceAccount(),
     scopes: ['https://www.googleapis.com/auth/androidpublisher'],
   });
   try {
