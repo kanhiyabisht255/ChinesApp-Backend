@@ -6,14 +6,15 @@ import {
   guestLogin,
   getMe,
 } from '../controllers/auth.controller';
-import { optionalAuthMiddleware } from '../middleware/auth';
+import { optionalAuthMiddleware, rateLimitMiddleware } from '../middleware/auth';
+import { asyncHandler } from '../middleware/error';
 
 const router = Router();
 
-router.post('/send-otp', sendOTP);
-router.post('/verify-otp', verifyOTPAndLogin);
-router.post('/google', googleAuth);
-router.post('/guest', guestLogin);
-router.get('/me', optionalAuthMiddleware, getMe);
+router.post('/send-otp', rateLimitMiddleware(5, 10 * 60_000), asyncHandler(sendOTP));
+router.post('/verify-otp', rateLimitMiddleware(10, 10 * 60_000), asyncHandler(verifyOTPAndLogin));
+router.post('/google', rateLimitMiddleware(10, 10 * 60_000), asyncHandler(googleAuth));
+router.post('/guest', rateLimitMiddleware(10, 60 * 60_000), asyncHandler(guestLogin));
+router.get('/me', asyncHandler(optionalAuthMiddleware), asyncHandler(getMe));
 
 export default router;

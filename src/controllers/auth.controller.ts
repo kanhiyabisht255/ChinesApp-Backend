@@ -1,13 +1,15 @@
 import { Request, Response } from 'express';
 import { User, Progress } from '../models';
-import { generateOTP, sendOTPviaMSG91, verifyOTP } from '../utils/otp';
+import { generateOTP, normalizePhone, sendOTPviaMSG91, verifyOTP } from '../utils/otp';
 import { generateToken } from '../utils/jwt';
 import type { AuthRequest } from '../types';
+import { normalizeLanguageCode } from '../services/localization.service';
+import { hasActivePremium } from '../services/entitlement.service';
 
 export const sendOTP = async (req: Request, res: Response): Promise<void> => {
-  const { phone } = req.body;
+  const phone = normalizePhone(req.body.phone);
   
-  if (!phone || phone.length < 10) {
+  if (!phone) {
     res.status(400).json({ success: false, message: 'Valid phone number required' });
     return;
   }
@@ -23,22 +25,23 @@ export const sendOTP = async (req: Request, res: Response): Promise<void> => {
 };
 
 export const verifyOTPAndLogin = async (req: Request, res: Response): Promise<void> => {
-  const { phone, otp, name } = req.body;
-  
+  const phone = normalizePhone(req.body.phone);
+  const { otp, name, nativeLanguage, learningGoal } = req.body;
+
   if (!phone || !otp) {
     res.status(400).json({ success: false, message: 'Phone and OTP required' });
     return;
   }
-  
-  const verification = verifyOTP(phone, otp);
-  
+
+  const verification = await verifyOTP(phone, String(otp));
+
   if (!verification.valid) {
     res.status(400).json({ success: false, message: verification.message });
     return;
   }
-  
+
   let user = await User.findOne({ phone });
-  
+
   if (!user) {
     user = await User.create({
       phone,
@@ -50,6 +53,8 @@ export const verifyOTPAndLogin = async (req: Request, res: Response): Promise<vo
       dailyGoal: 10,
       todayMinutes: 0,
       hskLevel: 1,
+      nativeLanguage: normalizeLanguageCode(nativeLanguage),
+      learningGoal: learningGoal || 'general',
     });
     
     await Progress.create({
@@ -68,10 +73,16 @@ export const verifyOTPAndLogin = async (req: Request, res: Response): Promise<vo
     });
   }
   
+  const activePremium = hasActivePremium(user);
+  if (user.isPremium !== activePremium) {
+    user.isPremium = activePremium;
+    await user.save();
+  }
+
   const token = generateToken({
     userId: user._id.toString(),
     phone: user.phone,
-    isPremium: user.isPremium,
+    isPremium: activePremium,
   });
   
   res.json({
@@ -83,32 +94,62 @@ export const verifyOTPAndLogin = async (req: Request, res: Response): Promise<vo
         id: user._id,
         name: user.name,
         phone: user.phone,
-        isPremium: user.isPremium,
+        isPremium: activePremium,
         gems: user.gems,
         streak: user.streak,
         xp: user.xp,
         hskLevel: user.hskLevel,
+        dailyGoal: user.dailyGoal,
+        todayMinutes: user.todayMinutes,
+        nativeLanguage: user.nativeLanguage,
+        learningGoal: user.learningGoal,
       },
     },
   });
 };
 
 export const googleAuth = async (req: Request, res: Response): Promise<void> => {
-  const { googleId, email, name } = req.body;
-  
-  if (!googleId) {
-    res.status(400).json({ success: false, message: 'Google ID required' });
+  const { idToken, nativeLanguage, learningGoal } = req.body;
+  const googleClientId = process.env.GOOGLE_CLIENT_ID;
+
+  if (!idToken) {
+    res.status(400).json({ success: false, message: 'Google ID token required' });
     return;
   }
-  
-  let user = await User.findOne({ googleId });
-  
+
+  if (!googleClientId) {
+    res.status(503).json({ success: false, message: 'Google sign-in is not configured' });
+    return;
+  }
+
+  const tokenResponse = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+  if (!tokenResponse.ok) {
+    res.status(401).json({ success: false, message: 'Invalid Google sign-in token' });
+    return;
+  }
+  const identity = await tokenResponse.json() as {
+    sub?: string;
+    aud?: string;
+    email?: string;
+    email_verified?: string;
+    name?: string;
+    picture?: string;
+  };
+  if (!identity.sub || identity.aud !== googleClientId || identity.email_verified !== 'true') {
+    res.status(401).json({ success: false, message: 'Google identity could not be verified' });
+    return;
+  }
+
+  const googleId = identity.sub;
+  let user = await User.findOne({ $or: [{ googleId }, ...(identity.email ? [{ email: identity.email }] : [])] });
+
   if (!user) {
     user = await User.create({
       googleId,
-      email,
-      name: name || 'Learner',
-      phone: `google_${googleId.slice(0, 10)}`,
+      email: identity.email,
+      avatar: identity.picture,
+      name: identity.name || 'Learner',
+      phone: `google_${googleId}`,
       gems: 50,
       xp: 0,
       streak: 0,
@@ -116,6 +157,8 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
       dailyGoal: 10,
       todayMinutes: 0,
       hskLevel: 1,
+      nativeLanguage: normalizeLanguageCode(nativeLanguage),
+      learningGoal: learningGoal || 'general',
     });
     
     await Progress.create({
@@ -132,12 +175,23 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
       totalMinutes: 0,
       wordsLearned: 0,
     });
+  } else if (!user.googleId) {
+    user.googleId = googleId;
+    if (!user.email) user.email = identity.email;
+    if (!user.avatar) user.avatar = identity.picture;
+    await user.save();
   }
   
+  const activePremium = hasActivePremium(user);
+  if (user.isPremium !== activePremium) {
+    user.isPremium = activePremium;
+    await user.save();
+  }
+
   const token = generateToken({
     userId: user._id.toString(),
     phone: user.phone,
-    isPremium: user.isPremium,
+    isPremium: activePremium,
   });
   
   res.json({
@@ -148,18 +202,26 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
       user: {
         id: user._id,
         name: user.name,
+        phone: user.phone,
         email: user.email,
-        isPremium: user.isPremium,
+        isPremium: activePremium,
         gems: user.gems,
         streak: user.streak,
+        xp: user.xp,
+        hskLevel: user.hskLevel,
+        dailyGoal: user.dailyGoal,
+        todayMinutes: user.todayMinutes,
+        nativeLanguage: user.nativeLanguage,
+        learningGoal: user.learningGoal,
       },
     },
   });
 };
 
 export const guestLogin = async (req: Request, res: Response): Promise<void> => {
+  const { nativeLanguage, learningGoal } = req.body;
   const guestId = `guest_${Date.now()}`;
-  
+
   const user = await User.create({
     phone: guestId,
     name: 'Guest',
@@ -170,6 +232,8 @@ export const guestLogin = async (req: Request, res: Response): Promise<void> => 
     dailyGoal: 10,
     todayMinutes: 0,
     hskLevel: 1,
+    nativeLanguage: normalizeLanguageCode(nativeLanguage),
+    learningGoal: learningGoal || 'general',
   });
   
   await Progress.create({
@@ -201,8 +265,16 @@ export const guestLogin = async (req: Request, res: Response): Promise<void> => 
       user: {
         id: user._id,
         name: user.name,
+        phone: user.phone,
         isPremium: user.isPremium,
         gems: user.gems,
+        streak: user.streak,
+        xp: user.xp,
+        hskLevel: user.hskLevel,
+        dailyGoal: user.dailyGoal,
+        todayMinutes: user.todayMinutes,
+        nativeLanguage: user.nativeLanguage,
+        learningGoal: user.learningGoal,
       },
     },
   });
@@ -216,6 +288,12 @@ export const getMe = async (req: Request, res: Response): Promise<void> => {
     res.status(404).json({ success: false, message: 'User not found' });
     return;
   }
+
+  const activePremium = hasActivePremium(user);
+  if (user.isPremium !== activePremium) {
+    user.isPremium = activePremium;
+    await user.save();
+  }
   
   res.json({
     success: true,
@@ -225,7 +303,7 @@ export const getMe = async (req: Request, res: Response): Promise<void> => {
       phone: user.phone,
       email: user.email,
       avatar: user.avatar,
-      isPremium: user.isPremium,
+      isPremium: activePremium,
       premiumExpiry: user.premiumExpiry,
       gems: user.gems,
       xp: user.xp,
@@ -233,6 +311,8 @@ export const getMe = async (req: Request, res: Response): Promise<void> => {
       dailyGoal: user.dailyGoal,
       todayMinutes: user.todayMinutes,
       hskLevel: user.hskLevel,
+      nativeLanguage: user.nativeLanguage,
+      learningGoal: user.learningGoal,
     },
   });
 };

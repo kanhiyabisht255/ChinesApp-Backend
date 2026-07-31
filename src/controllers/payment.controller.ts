@@ -2,12 +2,13 @@ import { Request, Response } from 'express';
 import {
   createRazorpayOrder,
   verifyRazorpayPayment,
-  createStripePaymentIntent,
   getPlanDetails,
   getGemPackDetails,
 } from '../services/payment.service';
 import { User, Subscription, GemTransaction } from '../models';
 import type { AuthRequest } from '../types';
+import { getAppConfig } from '../services/config.service';
+import mongoose from 'mongoose';
 
 export const createPremiumOrder = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
@@ -22,11 +23,8 @@ export const createPremiumOrder = async (req: Request, res: Response): Promise<v
     if (method === 'razorpay' || !method) {
       const order = await createRazorpayOrder('premium', planId, authReq.userId!);
       res.json({ success: true, data: { ...order, provider: 'razorpay' } });
-    } else if (method === 'stripe') {
-      const payment = await createStripePaymentIntent('premium', planId, authReq.userId!);
-      res.json({ success: true, data: { ...payment, provider: 'stripe' } });
     } else {
-      res.status(400).json({ success: false, message: 'Invalid payment method' });
+      res.status(400).json({ success: false, message: 'Only verified Razorpay checkout is supported by this endpoint' });
     }
   } catch (error) {
     console.error('Create order error:', error);
@@ -38,68 +36,99 @@ export const verifyPayment = async (req: Request, res: Response): Promise<void> 
   const authReq = req as AuthRequest;
   const { type, id, orderId, paymentId, signature } = req.body;
   
-  if (type === 'razorpay') {
-    const isValid = verifyRazorpayPayment(orderId, paymentId, signature);
-    
-    if (!isValid) {
-      res.status(400).json({ success: false, message: 'Invalid payment signature' });
-      return;
-    }
+  if (type !== 'razorpay' || !id || !orderId || !paymentId || !signature) {
+    res.status(400).json({ success: false, message: 'Complete Razorpay verification details are required' });
+    return;
+  }
+
+  const purchaseType = id.startsWith('g') ? 'gems' : 'premium';
+  const verification = await verifyRazorpayPayment(
+    orderId,
+    paymentId,
+    signature,
+    purchaseType,
+    id,
+    authReq.userId!
+  );
+
+  if (!verification.valid || !verification.amount) {
+    res.status(400).json({ success: false, message: 'Payment could not be verified' });
+    return;
   }
   
   if (id.startsWith('g')) {
     await handleGemPurchase(authReq.userId!, id, paymentId);
   } else {
-    await handlePremiumPurchase(authReq.userId!, id, paymentId);
+    await handlePremiumPurchase(authReq.userId!, id, paymentId, verification.amount);
   }
   
   res.json({ success: true, message: 'Payment verified successfully' });
 };
 
-const handlePremiumPurchase = async (userId: string, planId: string, paymentId: string): Promise<void> => {
+const handlePremiumPurchase = async (userId: string, planId: string, paymentId: string, amount: number): Promise<void> => {
   const plan = getPlanDetails(planId);
   if (!plan) throw new Error('Invalid plan');
-  
-  const startDate = new Date();
-  const endDate = new Date();
-  endDate.setDate(endDate.getDate() + plan.days);
-  
-  await User.findByIdAndUpdate(userId, {
-    isPremium: true,
-    premiumExpiry: endDate,
-  });
-  
-  await Subscription.create({
-    userId,
-    planId,
-    status: 'active',
-    startDate,
-    endDate,
-    paymentId,
-    amount: plan.amount,
-  });
+
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      if (await Subscription.exists({ paymentId }).session(session)) return;
+      const user = await User.findById(userId).session(session);
+      if (!user) throw new Error('User not found');
+      const startDate = new Date();
+      const endDate = user.premiumExpiry && user.premiumExpiry > startDate
+        ? new Date(user.premiumExpiry)
+        : new Date(startDate);
+      endDate.setDate(endDate.getDate() + plan.days);
+
+      await User.findByIdAndUpdate(userId, {
+        isPremium: true,
+        premiumExpiry: endDate,
+      }, { session });
+
+      await Subscription.create([{
+        userId,
+        planId,
+        status: 'active',
+        startDate,
+        endDate,
+        paymentId,
+        amount,
+      }], { session });
+    });
+  } finally {
+    await session.endSession();
+  }
 };
 
 const handleGemPurchase = async (userId: string, packId: string, paymentId: string): Promise<void> => {
   const pack = getGemPackDetails(packId);
   if (!pack) throw new Error('Invalid gem pack');
-  
-  const user = await User.findById(userId);
-  if (!user) throw new Error('User not found');
-  
-  const totalGems = pack.gems + pack.bonus;
-  const newBalance = user.gems + totalGems;
-  
-  await user.updateOne({ gems: newBalance });
-  
-  await GemTransaction.create({
-    userId,
-    type: 'purchase',
-    amount: totalGems,
-    balance: newBalance,
-    paymentId,
-    description: `Purchased ${pack.gems} gems + ${pack.bonus} bonus`,
-  });
+
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      if (await GemTransaction.exists({ paymentId, type: 'purchase' }).session(session)) return;
+      const totalGems = pack.gems + pack.bonus;
+      const user = await User.findByIdAndUpdate(
+        userId,
+        { $inc: { gems: totalGems } },
+        { new: true, session }
+      );
+      if (!user) throw new Error('User not found');
+
+      await GemTransaction.create([{
+        userId,
+        type: 'purchase',
+        amount: totalGems,
+        balance: user.gems,
+        paymentId,
+        description: `Purchased ${pack.gems} gems + ${pack.bonus} bonus`,
+      }], { session });
+    });
+  } finally {
+    await session.endSession();
+  }
 };
 
 export const createGemOrder = async (req: Request, res: Response): Promise<void> => {
@@ -115,11 +144,8 @@ export const createGemOrder = async (req: Request, res: Response): Promise<void>
     if (method === 'razorpay' || !method) {
       const order = await createRazorpayOrder('gems', packId, authReq.userId!);
       res.json({ success: true, data: { ...order, provider: 'razorpay' } });
-    } else if (method === 'stripe') {
-      const payment = await createStripePaymentIntent('gems', packId, authReq.userId!);
-      res.json({ success: true, data: { ...payment, provider: 'stripe' } });
     } else {
-      res.status(400).json({ success: false, message: 'Invalid payment method' });
+      res.status(400).json({ success: false, message: 'Only verified Razorpay checkout is supported by this endpoint' });
     }
   } catch (error) {
     console.error('Create gem order error:', error);
@@ -128,10 +154,11 @@ export const createGemOrder = async (req: Request, res: Response): Promise<void>
 };
 
 export const getPlans = async (req: Request, res: Response): Promise<void> => {
+  const pricing = (await getAppConfig()).pricing;
   const plans = [
-    { id: 'monthly', name: 'Monthly', price: 499, currency: 'INR', period: '/month', features: ['Unlimited AI calls', 'All scenarios', 'Full courses', 'Detailed reports'] },
-    { id: 'yearly', name: 'Annual', price: 2999, currency: 'INR', period: '/year', discount: 'Save 50%', features: ['Everything in Monthly', '2 months FREE', 'Priority AI', 'Offline access'], isPopular: true },
-    { id: 'lifetime', name: 'Lifetime', price: 7999, currency: 'INR', period: 'one-time', features: ['Pay once forever', 'All updates', 'All features', 'No recurring'], },
+    { id: 'monthly', name: 'Monthly', price: pricing.monthly, currency: 'INR', period: '/month', features: ['Unlimited AI calls', 'All scenarios', 'Full courses', 'Detailed reports'] },
+    { id: 'yearly', name: 'Annual', price: pricing.yearly, currency: 'INR', period: '/year', discount: 'Save 50%', features: ['Everything in Monthly', '2 months FREE', 'Priority AI', 'Offline access'], isPopular: true },
+    { id: 'lifetime', name: 'Lifetime', price: pricing.lifetime, currency: 'INR', period: 'one-time', features: ['Pay once forever', 'All updates', 'All features', 'No recurring'], },
   ];
   
   res.json({ success: true, data: plans });
@@ -147,30 +174,4 @@ export const getGemPacks = async (req: Request, res: Response): Promise<void> =>
   ];
   
   res.json({ success: true, data: packs });
-};
-
-export const handleRazorpayWebhook = async (req: Request, res: Response): Promise<void> => {
-  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
-  const signature = req.headers['x-razorpay-signature'];
-  
-  if (!signature || !secret) {
-    res.status(400).json({ success: false });
-    return;
-  }
-  
-  console.log('Razorpay webhook received:', req.body);
-  res.json({ success: true });
-};
-
-export const handleStripeWebhook = async (req: Request, res: Response): Promise<void> => {
-  const sig = req.headers['stripe-signature'] as string;
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  
-  if (!sig || !webhookSecret) {
-    res.status(400).json({ success: false });
-    return;
-  }
-  
-  console.log('Stripe webhook received:', req.body);
-  res.json({ success: true });
 };

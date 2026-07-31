@@ -7,10 +7,10 @@ Backend API for ChinesApp - Chinese Learning Application
 - **Node.js + Express + TypeScript**
 - **MongoDB + Mongoose**
 - **Socket.io** for real-time features
-- **OpenAI** for AI Voice & Chat
+- **OpenAI** for multilingual AI tutoring, transcription and AI-generated speech
 - **MSG91** for OTP
 - **Razorpay/Stripe** for payments
-- **Firebase Remote Config** for feature flags
+- **MongoDB app settings** for feature flags, AI models and pricing
 
 ## Project Structure
 
@@ -79,7 +79,7 @@ src/
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/ai/voice/start` | Start voice call |
-| POST | `/api/ai/voice/audio` | Process audio (Whisper) |
+| POST | `/api/ai/voice/audio` | Transcribe learner audio and generate a tutor reply |
 | POST | `/api/ai/voice/text` | Process text |
 | POST | `/api/ai/voice/end` | End call & save |
 | GET | `/api/ai/chat` | Get chat history |
@@ -100,8 +100,6 @@ src/
 | GET | `/api/payment/plans` | Get subscription plans |
 | POST | `/api/payment/premium/order` | Create premium order |
 | POST | `/api/payment/verify` | Verify payment |
-| POST | `/api/payment/webhook/razorpay` | Razorpay webhook |
-| POST | `/api/payment/webhook/stripe` | Stripe webhook |
 
 ## Setup
 
@@ -117,10 +115,12 @@ cp .env.example .env
 
 3. Start MongoDB locally or use MongoDB Atlas
 
-4. Seed the database:
+4. Seed the curated curriculum (idempotent by default):
 ```bash
 npm run seed
 ```
+
+The default seed upserts 8 courses, 24 lessons and 12 scenarios by stable slug. It does not delete existing content. `SEED_RESET=true` is destructive and must only be used intentionally.
 
 5. Start development server:
 ```bash
@@ -135,11 +135,14 @@ npm run dev
 | `MONGODB_URI` | MongoDB connection string |
 | `MONGO_URL` | Railway MongoDB URL fallback (optional) |
 | `JWT_SECRET` | JWT signing secret |
+| `OTP_SECRET` | OTP hashing secret |
 | `MSG91_AUTH_KEY` | MSG91 API key |
 | `OPENAI_API_KEY` | OpenAI API key |
+| `GOOGLE_CLIENT_ID` | Google OAuth web client ID used to verify ID tokens |
 | `RAZORPAY_KEY_ID` | Razorpay Key ID |
 | `RAZORPAY_KEY_SECRET` | Razorpay Key Secret |
-| `STRIPE_SECRET_KEY` | Stripe API key |
+| `ADMIN_EMAIL` | Admin login email |
+| `ADMIN_PASSWORD_HASH` | Preferred bcrypt admin password hash |
 
 ## Deployment (Railway)
 
@@ -148,9 +151,11 @@ npm run dev
 3. In the backend service's **Variables**, set `MONGODB_URI`:
    - Railway MongoDB: use a reference variable such as `${{MongoDB.MONGO_URL}}` (replace `MongoDB` if the service has a different name).
    - MongoDB Atlas: paste the Atlas `mongodb+srv://...` connection string.
-4. Set the other required environment variables, then redeploy the backend service.
+4. Set `JWT_SECRET`, `OTP_SECRET`, `OPENAI_API_KEY`, admin credentials, `FRONTEND_URL`, and any enabled auth/payment provider variables, then redeploy.
 
 Do not use `localhost` in `MONGODB_URI` on Railway. `localhost` points to the backend container itself, where MongoDB is not running.
+
+Rotate any database password or API key that has ever been pasted into chat, logs, screenshots, or committed files. The mobile UI discloses that Ling's generated voice is AI-generated, as required for synthetic speech.
 
 ## License
 

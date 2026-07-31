@@ -1,30 +1,24 @@
 import Razorpay from 'razorpay';
-import Stripe from 'stripe';
 import crypto from 'crypto';
+import type { AppConfig } from '../types';
+import { getAppConfig } from './config.service';
 
 let razorpayClient: Razorpay | null = null;
-let stripeClient: Stripe | null = null;
 
 const getRazorpay = (): Razorpay => {
+  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+    throw new Error('Razorpay is not configured');
+  }
   if (!razorpayClient) {
     razorpayClient = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID || 'placeholder',
-      key_secret: process.env.RAZORPAY_KEY_SECRET || 'placeholder',
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
     });
   }
   return razorpayClient;
 };
 
-const getStripe = (): Stripe => {
-  if (!stripeClient) {
-    stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY || 'placeholder', {
-      apiVersion: '2024-06-20' as Stripe.LatestApiVersion,
-    });
-  }
-  return stripeClient;
-};
-
-const PLANS = {
+const PLAN_METADATA = {
   monthly: { amount: 499, currency: 'INR', days: 30, name: 'Monthly Premium' },
   yearly: { amount: 2999, currency: 'INR', days: 365, name: 'Yearly Premium' },
   lifetime: { amount: 7999, currency: 'INR', days: 36500, name: 'Lifetime Premium' },
@@ -47,7 +41,7 @@ export const createRazorpayOrder = async (
   let receipt: string;
   
   if (type === 'premium') {
-    const plan = PLANS[id as keyof typeof PLANS];
+    const plan = getPlanDetails(id, (await getAppConfig()).pricing);
     if (!plan) throw new Error('Invalid plan');
     amount = plan.amount;
     receipt = `premium_${userId}_${id}_${Date.now()}`;
@@ -62,6 +56,7 @@ export const createRazorpayOrder = async (
     amount: amount * 100,
     currency: 'INR',
     receipt,
+    notes: { type, id, userId },
   });
   
   return {
@@ -71,48 +66,58 @@ export const createRazorpayOrder = async (
   };
 };
 
-export const verifyRazorpayPayment = (
+export const verifyRazorpayPayment = async (
   orderId: string,
   paymentId: string,
-  signature: string
-): boolean => {
+  signature: string,
+  purchaseType: 'premium' | 'gems',
+  purchaseId: string,
+  userId: string
+): Promise<{ valid: boolean; amount?: number }> => {
+  const secret = process.env.RAZORPAY_KEY_SECRET;
+  if (!secret || !orderId || !paymentId || !signature) return { valid: false };
   const body = `${orderId}|${paymentId}`;
   const expectedSignature = crypto
-    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || '')
+    .createHmac('sha256', secret)
     .update(body)
     .digest('hex');
-  
-  return expectedSignature === signature;
+
+  const expectedBuffer = Buffer.from(expectedSignature, 'utf8');
+  const receivedBuffer = Buffer.from(signature, 'utf8');
+  if (expectedBuffer.length !== receivedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)) {
+    return { valid: false };
+  }
+
+  const [order, payment] = await Promise.all([
+    getRazorpay().orders.fetch(orderId),
+    getRazorpay().payments.fetch(paymentId),
+  ]);
+  const knownPurchase = purchaseType === 'premium'
+    ? getPlanDetails(purchaseId)
+    : getGemPackDetails(purchaseId);
+  if (!knownPurchase) return { valid: false };
+
+  const notes = (order.notes || {}) as Record<string, unknown>;
+  const valid = payment.order_id === orderId
+    && ['authorized', 'captured'].includes(payment.status)
+    && Number(payment.amount) > 0
+    && Number(payment.amount) === Number(order.amount)
+    && String(order.currency).toUpperCase() === 'INR'
+    && String(notes.type || '') === purchaseType
+    && String(notes.id || '') === purchaseId
+    && String(notes.userId || '') === userId;
+  return { valid, amount: valid ? Number(order.amount) / 100 : undefined };
 };
 
-export const createStripePaymentIntent = async (
-  type: 'premium' | 'gems',
-  id: string,
-  userId: string
-): Promise<{ clientSecret: string; amount: number }> => {
-  let amount: number;
-  
-  if (type === 'premium') {
-    const plan = PLANS[id as keyof typeof PLANS];
-    if (!plan) throw new Error('Invalid plan');
-    amount = plan.amount;
-  } else {
-    const pack = GEM_PACKS[id];
-    if (!pack) throw new Error('Invalid gem pack');
-    amount = pack.amount;
-  }
-  
-  const paymentIntent = await getStripe().paymentIntents.create({
-    amount: amount * 100,
-    currency: 'usd',
-    metadata: { type, id, userId },
-  });
-  
+export const getPlanDetails = (planId: string, pricing?: AppConfig['pricing']) => {
+  const metadata = PLAN_METADATA[planId as keyof typeof PLAN_METADATA];
+  if (!metadata) return undefined;
+  const configuredAmount = pricing?.[planId as keyof AppConfig['pricing']];
   return {
-    clientSecret: paymentIntent.client_secret || '',
-    amount,
+    ...metadata,
+    amount: Number.isFinite(configuredAmount) && Number(configuredAmount) > 0
+      ? Number(configuredAmount)
+      : metadata.amount,
   };
 };
-
-export const getPlanDetails = (planId: string) => PLANS[planId as keyof typeof PLANS];
 export const getGemPackDetails = (packId: string) => GEM_PACKS[packId];

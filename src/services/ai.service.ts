@@ -1,49 +1,83 @@
-import OpenAI from 'openai';
-import type { AIVoiceResponse } from '../types';
+import OpenAI, { toFile } from 'openai';
+import { getLanguageName, normalizeLanguageCode } from './localization.service';
+import { getAppConfig } from './config.service';
 
 let openaiClient: OpenAI | null = null;
 
+export class AIServiceError extends Error {
+  statusCode: number;
+  code: string;
+
+  constructor(message: string, code = 'AI_UNAVAILABLE', statusCode = 503) {
+    super(message);
+    this.name = 'AIServiceError';
+    this.code = code;
+    this.statusCode = statusCode;
+  }
+}
+
 const getOpenAI = (): OpenAI => {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey || apiKey.startsWith('sk-your-')) {
+    throw new AIServiceError('AI tutor is not configured yet');
+  }
   if (!openaiClient) {
     openaiClient = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY || 'missing',
+      apiKey,
+      timeout: 30_000,
+      maxRetries: 1,
     });
   }
   return openaiClient;
 };
 
-const CHINESE_SYSTEM_PROMPT = `You are Ling (灵), a friendly and encouraging AI Chinese language tutor. Your role is to:
+export interface TutorOptions {
+  isVoiceCall?: boolean;
+  nativeLanguage?: string;
+  hskLevel?: number;
+  learningGoal?: string;
+  scenarioPrompt?: string;
+}
+
+const buildChineseSystemPrompt = (options: TutorOptions): string => {
+  const languageCode = normalizeLanguageCode(options.nativeLanguage);
+  const languageName = getLanguageName(languageCode);
+  const level = Math.min(Math.max(options.hskLevel || 1, 1), 6);
+
+  return `You are Ling (灵), a friendly, accurate and encouraging AI Mandarin Chinese tutor. Your role is to:
 
 1. Help users practice speaking Chinese
-2. Correct their pronunciation and grammar gently
+2. Correct vocabulary and grammar gently without interrupting every turn
 3. Provide pinyin for all Chinese text
-4. Give English translations
-5. Be patient and encouraging
+4. Translate explanations into ${languageName} (${languageCode})
+5. Be patient, culturally respectful and useful in real life
 
 Rules:
-- Keep responses concise (1-3 sentences)
-- Always provide Chinese, Pinyin, and English
-- For corrections, explain what was wrong and give the correct form
-- Be friendly and use emojis occasionally
-- Adjust difficulty based on user's level
+- Learner level: HSK ${level}; learning goal: ${options.learningGoal || 'general communication'}
+- Keep voice responses concise (1-2 short sentences); chat responses may use up to 4 short sentences
+- Use simplified Chinese unless the learner explicitly requests traditional characters
+- Never invent pronunciation facts. Use tone-marked pinyin with correct spacing
+- Give one actionable correction at a time and praise specifically, not generically
+- If the learner uses ${languageName}, teach the natural Mandarin equivalent
+- Avoid romantic, sexual, medical, legal or financial role-play beyond safe language practice
+${options.scenarioPrompt ? `- Scenario instructions: ${options.scenarioPrompt}` : ''}
 
-When the user speaks in English, respond in simple Chinese with pinyin and translation.
+When the user speaks in another language, respond in level-appropriate Chinese with pinyin and a ${languageName} translation.
 When the user speaks in Chinese, respond in Chinese with corrections if needed.
 
-Format your responses as:
-Chinese: [Chinese text]
-Pinyin: [Pinyin]
-English: [English translation]
-Correction: [If needed, otherwise skip]`;
+Return valid JSON only with this shape:
+{"chinese":"...","pinyin":"...","english":"${languageName} translation","correction":"optional concise correction","feedback":"optional learning tip"}`;
+};
 
 export const generateAIResponse = async (
   userMessage: string,
   context: string[] = [],
-  isVoiceCall: boolean = false
-): Promise<{ chinese: string; pinyin: string; english: string }> => {
+  options: TutorOptions = {}
+): Promise<{ chinese: string; pinyin: string; english: string; correction?: string; feedback?: string }> => {
   try {
+    const appConfig = await getAppConfig();
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: 'system', content: CHINESE_SYSTEM_PROMPT },
+      { role: 'system', content: buildChineseSystemPrompt(options) },
       ...context.map((msg, i) => ({
         role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
         content: msg,
@@ -52,76 +86,81 @@ export const generateAIResponse = async (
     ];
     
     const completion = await getOpenAI().chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: appConfig.aiConfig.model,
       messages,
-      max_tokens: isVoiceCall ? 100 : 200,
-      temperature: 0.7,
+      max_tokens: options.isVoiceCall
+        ? Math.min(appConfig.aiConfig.maxTokens, 180)
+        : Math.min(appConfig.aiConfig.maxTokens, 400),
+      temperature: Math.max(0, Math.min(appConfig.aiConfig.temperature, 1)),
+      response_format: { type: 'json_object' },
     });
     
-    const responseText = completion.choices[0]?.message?.content || '你好！有什么可以帮你的？';
-    
+    const responseText = completion.choices[0]?.message?.content;
+    if (!responseText) throw new AIServiceError('AI tutor returned an empty response', 'AI_EMPTY_RESPONSE');
     return parseAIResponse(responseText);
   } catch (error) {
     console.error('OpenAI Error:', error);
-    return {
-      chinese: '你好！我是灵，你的中文老师。',
-      pinyin: 'Nǐ hǎo! Wǒ shì Líng, nǐ de Zhōng wén lǎo shī.',
-      english: 'Hello! I am Ling, your Chinese teacher.',
-    };
+    if (error instanceof AIServiceError) throw error;
+    throw new AIServiceError('AI tutor is temporarily unavailable. Please try again shortly.');
   }
 };
 
-const parseAIResponse = (text: string): { chinese: string; pinyin: string; english: string } => {
-  const chineseMatch = text.match(/Chinese:\s*(.+)/i);
-  const pinyinMatch = text.match(/Pinyin:\s*(.+)/i);
-  const englishMatch = text.match(/English:\s*(.+)/i);
-  
-  if (chineseMatch && pinyinMatch && englishMatch) {
-    return {
-      chinese: chineseMatch[1].trim(),
-      pinyin: pinyinMatch[1].trim(),
-      english: englishMatch[1].trim(),
-    };
-  }
-  
-  const lines = text.split('\n').filter(l => l.trim());
-  if (lines.length >= 1) {
-    return {
-      chinese: lines[0],
-      pinyin: lines[1] || '',
-      english: lines[2] || text,
-    };
-  }
-  
-  return {
-    chinese: text,
-    pinyin: '',
-    english: text,
-  };
-};
-
-export const transcribeAudio = async (audioBuffer: Buffer): Promise<string> => {
+const parseAIResponse = (text: string): { chinese: string; pinyin: string; english: string; correction?: string; feedback?: string } => {
   try {
-    const transcription = await getOpenAI().audio.transcriptions.create({
-      file: new File([audioBuffer], 'audio.webm', { type: 'audio/webm' }),
-      model: 'whisper-1',
-      language: 'zh',
-      response_format: 'text',
-    });
-    
-    return transcription;
+    const jsonText = text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+    const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+    if (
+      typeof parsed.chinese === 'string' && parsed.chinese.trim() &&
+      typeof parsed.pinyin === 'string' && parsed.pinyin.trim() &&
+      typeof parsed.english === 'string' && parsed.english.trim()
+    ) {
+      return {
+        chinese: parsed.chinese.trim(),
+        pinyin: parsed.pinyin.trim(),
+        english: parsed.english.trim(),
+        correction: typeof parsed.correction === 'string' ? parsed.correction : undefined,
+        feedback: typeof parsed.feedback === 'string' ? parsed.feedback : undefined,
+      };
+    }
   } catch (error) {
-    console.error('Whisper Error:', error);
-    throw new Error('Failed to transcribe audio');
+    console.error('Invalid AI JSON response:', error);
+  }
+  throw new AIServiceError('AI tutor returned an invalid response', 'AI_INVALID_RESPONSE');
+};
+
+export const transcribeAudio = async (
+  audioBuffer: Buffer,
+  options: TutorOptions = {},
+  fileName = 'practice.m4a',
+  mimeType = 'audio/mp4'
+): Promise<string> => {
+  try {
+    const appConfig = await getAppConfig();
+    const transcription = await getOpenAI().audio.transcriptions.create({
+      file: await toFile(audioBuffer, fileName, { type: mimeType }),
+      model: appConfig.aiConfig.transcriptionModel,
+      response_format: 'json',
+      prompt: `Mandarin learning practice. The learner may mix Mandarin Chinese with ${getLanguageName(normalizeLanguageCode(options.nativeLanguage))}. Preserve what was actually spoken.`,
+    });
+
+    const text = transcription.text?.trim();
+    if (!text) throw new AIServiceError('No speech was detected', 'NO_SPEECH', 422);
+    return text;
+  } catch (error) {
+    console.error('Transcription Error:', error);
+    if (error instanceof AIServiceError) throw error;
+    throw new AIServiceError('Your recording could not be transcribed. Please try again.');
   }
 };
 
 export const generateSpeech = async (text: string): Promise<Buffer> => {
   try {
+    const appConfig = await getAppConfig();
     const response = await getOpenAI().audio.speech.create({
-      model: 'tts-1',
-      voice: 'nova',
+      model: appConfig.aiConfig.ttsModel,
+      voice: appConfig.aiConfig.ttsVoice,
       input: text,
+      instructions: 'Speak natural standard Mandarin Chinese with a warm, patient tutor voice. Pronounce tones clearly at a slightly slower learning pace without sounding robotic.',
       response_format: 'mp3',
     });
     
@@ -129,7 +168,8 @@ export const generateSpeech = async (text: string): Promise<Buffer> => {
     return buffer;
   } catch (error) {
     console.error('TTS Error:', error);
-    throw new Error('Failed to generate speech');
+    if (error instanceof AIServiceError) throw error;
+    throw new AIServiceError('Tutor audio is temporarily unavailable');
   }
 };
 
@@ -141,20 +181,20 @@ export const analyzePronunciation = (
   const spokenChars = spokenText.replace(/[^\u4e00-\u9fff]/g, '');
   
   if (expectedChars === spokenChars) {
-    return { score: 95, feedback: 'Perfect pronunciation! 非常好！' };
+    return { score: 100, feedback: 'The transcript matched the target phrase. Tone accuracy still needs listening review.' };
   }
   
   const commonChars = expectedChars.split('').filter(c => spokenChars.includes(c));
   const similarity = commonChars.length / Math.max(expectedChars.length, 1);
   const score = Math.round(similarity * 100);
   
-  let feedback = 'Good effort! ';
+  let feedback = 'Transcript match: ';
   if (score >= 80) {
-    feedback += 'Almost perfect. Keep practicing! 继续加油！';
+    feedback += 'most words were recognized. Replay the reference and compare each tone.';
   } else if (score >= 60) {
-    feedback += 'Nice try! Focus on tones. 注意声调！';
+    feedback += 'some words were recognized. Speak more slowly and keep syllables distinct.';
   } else {
-    feedback += 'Keep practicing! Listen carefully. 多听多说！';
+    feedback += 'the phrase was not recognized reliably. Listen once, then repeat in short parts.';
   }
   
   return { score, feedback };

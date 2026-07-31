@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -5,7 +6,6 @@ import morgan from 'morgan';
 import compression from 'compression';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import dotenv from 'dotenv';
 
 import { connectDB } from './config/database';
 import { errorHandler, notFoundHandler } from './middleware/error';
@@ -19,14 +19,24 @@ import paymentRoutes from './routes/payment.routes';
 import configRoutes from './routes/config.routes';
 import adminRoutes from './routes/admin.routes';
 import { setupVoiceSocket } from './sockets/voice.socket';
-
-dotenv.config();
+import { validateEnvironment } from './config/environment';
 
 const app = express();
+app.set('trust proxy', 1);
+const allowedOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map(origin => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+const isAllowedOrigin = (origin?: string): boolean => {
+  if (!origin) return true;
+  const normalized = origin.replace(/\/$/, '');
+  if (allowedOrigins.includes(normalized)) return true;
+  return process.env.NODE_ENV !== 'production' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalized);
+};
 const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || '*',
+    origin: allowedOrigins.length > 0 ? allowedOrigins : process.env.NODE_ENV !== 'production',
     methods: ['GET', 'POST'],
   },
 });
@@ -37,7 +47,10 @@ app.set('io', io);
 
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+  origin: (origin, callback) => {
+    if (isAllowedOrigin(origin)) callback(null, true);
+    else callback(new Error('Origin is not allowed by CORS'));
+  },
   credentials: true,
 }));
 app.use(compression());
@@ -80,6 +93,7 @@ setupVoiceSocket(io);
 
 const startServer = async (): Promise<void> => {
   try {
+    validateEnvironment();
     await connectDB();
     
     httpServer.listen(PORT, () => {

@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { verifyToken, extractToken } from '../utils/jwt';
 import type { AuthRequest } from '../types';
 import { getAppConfig } from '../services/config.service';
+import { hasActivePremium } from '../services/entitlement.service';
+import rateLimit from 'express-rate-limit';
 
 export const authMiddleware = async (
   req: Request,
@@ -25,7 +27,7 @@ export const authMiddleware = async (
     
     (req as AuthRequest).userId = decoded.userId;
     next();
-  } catch (error) {
+  } catch {
     res.status(401).json({ success: false, message: 'Authentication failed' });
   }
 };
@@ -66,12 +68,13 @@ export const premiumMiddleware = async (
       return;
     }
     
-    if (!user.isPremium && user.premiumExpiry && user.premiumExpiry > new Date()) {
-      user.isPremium = true;
+    const activePremium = hasActivePremium(user);
+    if (user.isPremium !== activePremium) {
+      user.isPremium = activePremium;
       await user.save();
     }
     
-    if (!user.isPremium) {
+    if (!activePremium) {
       res.status(403).json({ success: false, message: 'Premium subscription required' });
       return;
     }
@@ -91,13 +94,15 @@ export const premiumMiddleware = async (
       dailyGoal: user.dailyGoal,
       todayMinutes: user.todayMinutes,
       hskLevel: user.hskLevel,
+      nativeLanguage: user.nativeLanguage,
+      learningGoal: user.learningGoal,
       googleId: user.googleId,
       isAdmin: user.isAdmin,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
     next();
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -140,13 +145,15 @@ export const adminMiddleware = async (
       dailyGoal: user.dailyGoal,
       todayMinutes: user.todayMinutes,
       hskLevel: user.hskLevel,
+      nativeLanguage: user.nativeLanguage,
+      learningGoal: user.learningGoal,
       googleId: user.googleId,
       isAdmin: user.isAdmin,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
     next();
-  } catch (error) {
+  } catch {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -157,8 +164,13 @@ export const checkMaintenance = async (
   next: NextFunction
 ): Promise<void> => {
   const isMaintenance = await getAppConfig().then(c => c.maintenanceMode);
+  const alwaysAvailable = [
+    '/api/health',
+    '/api/config',
+    '/api/version',
+  ].includes(req.path) || req.path.startsWith('/api/admin');
   
-  if (isMaintenance && req.path !== '/api/health') {
+  if (isMaintenance && !alwaysAvailable) {
     res.status(503).json({
       success: false,
       message: 'App is under maintenance. Please try again later.',
@@ -172,29 +184,15 @@ export const checkMaintenance = async (
 export const rateLimitMiddleware = (
   maxRequests: number = 100,
   windowMs: number = 60000
-) => {
-  const requests: Map<string, { count: number; resetTime: number }> = new Map();
-  
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const ip = req.ip || 'unknown';
-    const now = Date.now();
-    const record = requests.get(ip);
-    
-    if (!record || now > record.resetTime) {
-      requests.set(ip, { count: 1, resetTime: now + windowMs });
-      next();
-      return;
-    }
-    
-    if (record.count >= maxRequests) {
+) => rateLimit({
+    windowMs,
+    limit: maxRequests,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req, res) => {
       res.status(429).json({
         success: false,
         message: 'Too many requests. Please try again later.',
       });
-      return;
-    }
-    
-    record.count++;
-    next();
-  };
-};
+    },
+  });

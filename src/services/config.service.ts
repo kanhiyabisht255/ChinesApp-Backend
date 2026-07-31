@@ -1,4 +1,5 @@
 import type { AppConfig } from '../types';
+import { AppSetting } from '../models';
 
 const DEFAULT_CONFIG: AppConfig = {
   minAppVersion: '1.0.0',
@@ -7,12 +8,15 @@ const DEFAULT_CONFIG: AppConfig = {
   features: {
     voiceCallEnabled: true,
     chatEnabled: true,
-    premiumRequiredForScenarios: ['s7', 's8', 's9', 's10', 's11', 's12'],
+    premiumRequiredForScenarios: [],
   },
   aiConfig: {
     model: 'gpt-4o-mini',
-    maxTokens: 150,
-    temperature: 0.7,
+    maxTokens: 220,
+    temperature: 0.6,
+    transcriptionModel: 'gpt-transcribe',
+    ttsModel: 'gpt-4o-mini-tts',
+    ttsVoice: 'marin',
   },
   pricing: {
     monthly: 499,
@@ -23,43 +27,56 @@ const DEFAULT_CONFIG: AppConfig = {
 
 let cachedConfig: AppConfig = DEFAULT_CONFIG;
 let lastFetchTime = 0;
-const CACHE_TTL = 5 * 60 * 1000;
+const CACHE_TTL = 60 * 1000;
+
+const mergeConfig = (base: AppConfig, updates: Partial<AppConfig>): AppConfig => ({
+  ...base,
+  ...updates,
+  features: { ...base.features, ...(updates.features || {}) },
+  aiConfig: { ...base.aiConfig, ...(updates.aiConfig || {}) },
+  pricing: { ...base.pricing, ...(updates.pricing || {}) },
+});
 
 export const getAppConfig = async (): Promise<AppConfig> => {
-  if (Date.now() - lastFetchTime < CACHE_TTL) {
-    return cachedConfig;
-  }
-  
+  if (Date.now() - lastFetchTime < CACHE_TTL) return cachedConfig;
+
   try {
-    const response = await fetch(
-      `https://firebaseremoteconfig.googleapis.com/v1/projects/${process.env.FIREBASE_PROJECT_ID}/namespaces/firebase:fetch`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.FIREBASE_ACCESS_TOKEN}`,
-        },
-        body: JSON.stringify({
-          app_id: process.env.FIREBASE_APP_ID,
-          app_instance_id: 'server',
-        }),
-      }
-    );
-    
-    if (response.ok) {
-      const data = await response.json() as Partial<AppConfig>;
-      cachedConfig = { ...DEFAULT_CONFIG, ...data };
-      lastFetchTime = Date.now();
-    }
+    const setting = await AppSetting.findOne({ key: 'app-config' }).lean();
+    cachedConfig = mergeConfig(DEFAULT_CONFIG, (setting?.value || {}) as Partial<AppConfig>);
   } catch (error) {
-    console.error('Remote Config Error:', error);
+    console.error('App config database error:', error);
   }
-  
+  lastFetchTime = Date.now();
   return cachedConfig;
 };
 
-export const updateLocalConfig = (updates: Partial<AppConfig>): void => {
-  cachedConfig = { ...cachedConfig, ...updates };
+export const updateLocalConfig = async (updates: Partial<AppConfig>): Promise<AppConfig> => {
+  const current = await getAppConfig();
+  const merged = mergeConfig(current, updates);
+  cachedConfig = {
+    ...merged,
+    minAppVersion: /^\d+\.\d+\.\d+$/.test(merged.minAppVersion) ? merged.minAppVersion : current.minAppVersion,
+    aiConfig: {
+      model: String(merged.aiConfig.model || current.aiConfig.model).trim().slice(0, 100),
+      maxTokens: Math.max(64, Math.min(Number(merged.aiConfig.maxTokens) || current.aiConfig.maxTokens, 2000)),
+      temperature: Math.max(0, Math.min(Number(merged.aiConfig.temperature) || 0, 1)),
+      transcriptionModel: String(merged.aiConfig.transcriptionModel || current.aiConfig.transcriptionModel).trim().slice(0, 100),
+      ttsModel: String(merged.aiConfig.ttsModel || current.aiConfig.ttsModel).trim().slice(0, 100),
+      ttsVoice: String(merged.aiConfig.ttsVoice || current.aiConfig.ttsVoice).trim().slice(0, 50),
+    },
+    pricing: {
+      monthly: Math.max(1, Math.min(Number(merged.pricing.monthly) || current.pricing.monthly, 1_000_000)),
+      yearly: Math.max(1, Math.min(Number(merged.pricing.yearly) || current.pricing.yearly, 1_000_000)),
+      lifetime: Math.max(1, Math.min(Number(merged.pricing.lifetime) || current.pricing.lifetime, 1_000_000)),
+    },
+  };
+  await AppSetting.findOneAndUpdate(
+    { key: 'app-config' },
+    { $set: { value: cachedConfig } },
+    { upsert: true, new: true }
+  );
+  lastFetchTime = Date.now();
+  return cachedConfig;
 };
 
 export const getFeatureFlag = async (feature: keyof AppConfig['features']): Promise<boolean> => {
@@ -68,27 +85,18 @@ export const getFeatureFlag = async (feature: keyof AppConfig['features']): Prom
   return Array.isArray(value) ? value.length > 0 : value ?? true;
 };
 
-export const isMaintenanceMode = async (): Promise<boolean> => {
-  const config = await getAppConfig();
-  return config.maintenanceMode;
-};
+export const isMaintenanceMode = async (): Promise<boolean> => (await getAppConfig()).maintenanceMode;
 
 export const checkAppVersion = async (version: string): Promise<{ update: boolean; force: boolean }> => {
   const config = await getAppConfig();
   const minVersion = config.minAppVersion.split('.').map(Number);
   const currentVersion = version.split('.').map(Number);
-  
+
   for (let i = 0; i < 3; i++) {
     const min = minVersion[i] || 0;
     const current = currentVersion[i] || 0;
-    
-    if (current < min) {
-      return { update: true, force: config.forceUpdate };
-    }
-    if (current > min) {
-      return { update: false, force: false };
-    }
+    if (current < min) return { update: true, force: config.forceUpdate };
+    if (current > min) return { update: false, force: false };
   }
-  
   return { update: false, force: false };
 };

@@ -9,18 +9,39 @@ import {
   sendChatMessage,
   clearChat,
 } from '../controllers/ai.controller';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, rateLimitMiddleware } from '../middleware/auth';
+import { getAppConfig } from '../services/config.service';
+import { asyncHandler } from '../middleware/error';
+import type { Request, Response, NextFunction } from 'express';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+});
 
-router.post('/voice/start', authMiddleware, startVoiceCall);
-router.post('/voice/audio', authMiddleware, upload.single('audio'), processVoiceAudio);
-router.post('/voice/text', authMiddleware, processVoiceText);
-router.post('/voice/end', authMiddleware, endVoiceCall);
+router.use(rateLimitMiddleware(30, 60_000));
 
-router.get('/chat', authMiddleware, getChatMessages);
-router.post('/chat', authMiddleware, sendChatMessage);
-router.delete('/chat', authMiddleware, clearChat);
+const requireFeature = (feature: 'voiceCallEnabled' | 'chatEnabled') =>
+  async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const config = await getAppConfig();
+    if (!config.features[feature]) {
+      res.status(503).json({ success: false, message: 'This AI feature is temporarily unavailable' });
+      return;
+    }
+    next();
+  };
+
+const feature = (name: 'voiceCallEnabled' | 'chatEnabled') => asyncHandler(requireFeature(name));
+const auth = asyncHandler(authMiddleware);
+
+router.post('/voice/start', auth, feature('voiceCallEnabled'), asyncHandler(startVoiceCall));
+router.post('/voice/audio', auth, feature('voiceCallEnabled'), upload.single('audio'), asyncHandler(processVoiceAudio));
+router.post('/voice/text', auth, feature('voiceCallEnabled'), asyncHandler(processVoiceText));
+router.post('/voice/end', auth, feature('voiceCallEnabled'), asyncHandler(endVoiceCall));
+
+router.get('/chat', auth, feature('chatEnabled'), asyncHandler(getChatMessages));
+router.post('/chat', auth, feature('chatEnabled'), asyncHandler(sendChatMessage));
+router.delete('/chat', auth, feature('chatEnabled'), asyncHandler(clearChat));
 
 export default router;

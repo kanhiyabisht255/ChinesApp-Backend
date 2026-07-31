@@ -15,11 +15,26 @@ export interface IUser {
   dailyGoal: number;
   todayMinutes: number;
   hskLevel: number;
+  nativeLanguage: string;
+  learningGoal?: 'general' | 'travel' | 'business' | 'hsk' | 'culture';
   googleId?: string;
   isAdmin?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
+
+export type LearningLevel = 'starter' | 'beginner' | 'intermediate' | 'advanced' | 'fluent';
+export type AccessTier = 'free' | 'premium';
+export type LessonType =
+  | 'pronunciation'
+  | 'vocabulary'
+  | 'dialogue'
+  | 'grammar'
+  | 'listening'
+  | 'reading'
+  | 'story'
+  | 'character'
+  | 'quiz';
 
 export interface IProgress {
   _id: string;
@@ -35,18 +50,23 @@ export interface IProgress {
   totalSessions: number;
   totalMinutes: number;
   wordsLearned: number;
+  completedLessonIds: string[];
+  lastLessonId?: string;
   lastUpdated: Date;
 }
 
 export interface ICallSession {
   _id: string;
+  sessionId?: string;
   userId: string;
   scenarioId?: string;
   scenarioTitle: string;
+  status?: 'started' | 'completed';
   duration: number;
   score: number;
   feedback: string;
   transcript: ITranscriptItem[];
+  expiresAt?: Date;
   createdAt: Date;
 }
 
@@ -70,6 +90,7 @@ export interface IChatMessage {
 
 export interface ICourse {
   _id: string;
+  slug: string;
   title: string;
   titleCn: string;
   hskLevel: number;
@@ -79,19 +100,63 @@ export interface ICourse {
   icon: string;
   isPremium: boolean;
   order: number;
+  level: LearningLevel;
+  category: string;
+  accessTier: AccessTier;
+  outcomes: string[];
+  supportedLanguages: string[];
+  isPublished: boolean;
+  translations?: Map<string, Map<string, string>>;
   createdAt: Date;
+}
+
+export interface IGrammarPoint {
+  title: string;
+  explanation: string;
+  example: string;
+  examplePinyin: string;
+  exampleTranslation: string;
+  translations?: Map<string, string>;
 }
 
 export interface ILesson {
   _id: string;
+  slug: string;
   courseId: string;
   title: string;
   titleCn: string;
   pinyin: string;
   description: string;
   order: number;
+  type: LessonType;
+  estimatedMinutes: number;
+  xpReward: number;
+  isPremium: boolean;
+  isPublished: boolean;
+  objectives: string[];
   vocab: IVocabItem[];
+  grammarPoints?: IGrammarPoint[];
+  sentences?: IExampleSentence[];
+  exercises?: IExercise[];
+  translations?: Map<string, Map<string, string>>;
   createdAt: Date;
+}
+
+export interface IExampleSentence {
+  chinese: string;
+  pinyin: string;
+  english: string;
+  translations?: Map<string, string>;
+}
+
+export interface IExercise {
+  type: 'multiple_choice' | 'reorder' | 'listen_select' | 'speak' | 'translate' | 'trace';
+  prompt: string;
+  promptChinese?: string;
+  options?: string[];
+  answer: string;
+  explanation?: string;
+  translations?: Map<string, string>;
 }
 
 export interface IVocabItem {
@@ -100,10 +165,12 @@ export interface IVocabItem {
   english: string;
   partOfSpeech: string;
   examples?: string[];
+  translations?: Map<string, string>;
 }
 
 export interface IScenario {
   _id: string;
+  slug: string;
   title: string;
   titleCn: string;
   pinyin: string;
@@ -114,6 +181,11 @@ export interface IScenario {
   isPremium: boolean;
   dialogues: IDialogueItem[];
   order: number;
+  estimatedMinutes: number;
+  learningGoals: string[];
+  systemPrompt?: string;
+  isPublished: boolean;
+  translations?: Map<string, Map<string, string>>;
   createdAt: Date;
 }
 
@@ -122,6 +194,7 @@ export interface IDialogueItem {
   chinese: string;
   pinyin: string;
   english: string;
+  translations?: Map<string, string>;
 }
 
 export interface ISubscription {
@@ -180,6 +253,9 @@ export interface AppConfig {
     model: string;
     maxTokens: number;
     temperature: number;
+    transcriptionModel: string;
+    ttsModel: string;
+    ttsVoice: string;
   };
   pricing: {
     monthly: number;

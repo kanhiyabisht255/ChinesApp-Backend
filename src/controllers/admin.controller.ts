@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
 import {
   User,
   Progress,
@@ -11,34 +13,53 @@ import {
 } from '../models';
 import { generateToken } from '../utils/jwt';
 import { getAppConfig, updateLocalConfig } from '../services/config.service';
-import type { AuthRequest, AppConfig } from '../types';
+import type { AppConfig } from '../types';
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@chinesapp.com';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const slugify = (value: string): string => value
+  .toLowerCase()
+  .trim()
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-|-$/g, '');
+
+const idOrSlugQuery = (value: string): Record<string, unknown> =>
+  mongoose.isValidObjectId(value)
+    ? { $or: [{ _id: value }, { slug: value }] }
+    : { slug: value };
 
 export const adminLogin = async (req: Request, res: Response): Promise<void> => {
   const { email, password } = req.body;
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
 
   if (!email || !password) {
     res.status(400).json({ success: false, message: 'Email and password required' });
     return;
   }
 
-  if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
+  if (!adminEmail || (!adminPassword && !adminPasswordHash)) {
+    res.status(503).json({ success: false, message: 'Admin credentials are not configured on the server' });
+    return;
+  }
+
+  const passwordMatches = adminPasswordHash
+    ? await bcrypt.compare(password, adminPasswordHash)
+    : password === adminPassword;
+  if (email !== adminEmail || !passwordMatches) {
     res.status(401).json({ success: false, message: 'Invalid credentials' });
     return;
   }
 
   const token = generateToken({
     userId: 'admin',
-    phone: ADMIN_EMAIL,
+    phone: adminEmail,
     isPremium: true,
   });
 
   res.json({
     success: true,
     message: 'Admin login successful',
-    data: { token, user: { email: ADMIN_EMAIL, role: 'admin' } },
+    data: { token, user: { email: adminEmail, role: 'admin' } },
   });
 };
 
@@ -51,7 +72,7 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
         { $match: { status: 'active' } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]),
-      CallSession.countDocuments(),
+      CallSession.countDocuments({ status: { $ne: 'started' } }),
       Course.countDocuments(),
       Scenario.countDocuments(),
     ]);
@@ -209,7 +230,7 @@ export const getUserProgress = async (req: Request, res: Response): Promise<void
 };
 
 export const getUserCalls = async (req: Request, res: Response): Promise<void> => {
-  const calls = await CallSession.find({ userId: req.params.id }).sort({ createdAt: -1 });
+  const calls = await CallSession.find({ userId: req.params.id, status: { $ne: 'started' } }).sort({ createdAt: -1 });
   res.json({ success: true, data: calls });
 };
 
@@ -268,12 +289,19 @@ export const getAllCourses = async (req: Request, res: Response): Promise<void> 
 };
 
 export const createCourse = async (req: Request, res: Response): Promise<void> => {
-  const course = await Course.create(req.body);
+  const payload = {
+    ...req.body,
+    slug: req.body.slug || slugify(req.body.title || `course-${Date.now()}`),
+    isPublished: req.body.isPublished ?? true,
+  };
+  const course = await Course.create(payload);
   res.status(201).json({ success: true, message: 'Course created', data: course });
 };
 
 export const updateCourse = async (req: Request, res: Response): Promise<void> => {
-  const course = await Course.findByIdAndUpdate(req.params.id, req.body, { new: true });
+  const updates = { ...req.body };
+  if (updates.title && !updates.slug) updates.slug = slugify(updates.title);
+  const course = await Course.findOneAndUpdate(idOrSlugQuery(req.params.id), updates, { new: true, runValidators: true });
   if (!course) {
     res.status(404).json({ success: false, message: 'Course not found' });
     return;
@@ -282,13 +310,61 @@ export const updateCourse = async (req: Request, res: Response): Promise<void> =
 };
 
 export const deleteCourse = async (req: Request, res: Response): Promise<void> => {
-  const course = await Course.findByIdAndDelete(req.params.id);
+  const course = await Course.findOneAndDelete(idOrSlugQuery(req.params.id));
   if (!course) {
     res.status(404).json({ success: false, message: 'Course not found' });
     return;
   }
-  await Lesson.deleteMany({ courseId: req.params.id });
+  await Lesson.deleteMany({ courseId: course._id.toString() });
   res.json({ success: true, message: 'Course deleted' });
+};
+
+export const getCourseLessons = async (req: Request, res: Response): Promise<void> => {
+  const course = await Course.findOne(idOrSlugQuery(req.params.courseId)).select('_id');
+  if (!course) {
+    res.status(404).json({ success: false, message: 'Course not found' });
+    return;
+  }
+  const lessons = await Lesson.find({ courseId: course._id.toString() }).sort({ order: 1 });
+  res.json({ success: true, data: lessons });
+};
+
+export const createCourseLesson = async (req: Request, res: Response): Promise<void> => {
+  const course = await Course.findOne(idOrSlugQuery(req.params.courseId)).select('_id');
+  if (!course) {
+    res.status(404).json({ success: false, message: 'Course not found' });
+    return;
+  }
+  const payload = {
+    ...req.body,
+    courseId: course._id.toString(),
+    slug: req.body.slug || slugify(`${req.body.title || 'lesson'}-${Date.now()}`),
+    isPublished: req.body.isPublished ?? true,
+  };
+  const lesson = await Lesson.create(payload);
+  await Course.findByIdAndUpdate(course._id, { $inc: { totalLessons: 1 } });
+  res.status(201).json({ success: true, message: 'Lesson created', data: lesson });
+};
+
+export const updateCourseLesson = async (req: Request, res: Response): Promise<void> => {
+  const updates = { ...req.body };
+  if (updates.title && !updates.slug) updates.slug = slugify(updates.title);
+  const lesson = await Lesson.findOneAndUpdate(idOrSlugQuery(req.params.id), updates, { new: true, runValidators: true });
+  if (!lesson) {
+    res.status(404).json({ success: false, message: 'Lesson not found' });
+    return;
+  }
+  res.json({ success: true, message: 'Lesson updated', data: lesson });
+};
+
+export const deleteCourseLesson = async (req: Request, res: Response): Promise<void> => {
+  const lesson = await Lesson.findOneAndDelete(idOrSlugQuery(req.params.id));
+  if (!lesson) {
+    res.status(404).json({ success: false, message: 'Lesson not found' });
+    return;
+  }
+  await Course.findOneAndUpdate({ _id: lesson.courseId }, { $inc: { totalLessons: -1 } });
+  res.json({ success: true, message: 'Lesson deleted' });
 };
 
 export const getAllScenarios = async (req: Request, res: Response): Promise<void> => {
@@ -297,12 +373,18 @@ export const getAllScenarios = async (req: Request, res: Response): Promise<void
 };
 
 export const createScenario = async (req: Request, res: Response): Promise<void> => {
-  const scenario = await Scenario.create(req.body);
+  const scenario = await Scenario.create({
+    ...req.body,
+    slug: req.body.slug || slugify(req.body.title || `scenario-${Date.now()}`),
+    isPublished: req.body.isPublished ?? true,
+  });
   res.status(201).json({ success: true, message: 'Scenario created', data: scenario });
 };
 
 export const updateScenario = async (req: Request, res: Response): Promise<void> => {
-  const scenario = await Scenario.findByIdAndUpdate(req.params.id, req.body, { new: true });
+  const updates = { ...req.body };
+  if (updates.title && !updates.slug) updates.slug = slugify(updates.title);
+  const scenario = await Scenario.findOneAndUpdate(idOrSlugQuery(req.params.id), updates, { new: true, runValidators: true });
   if (!scenario) {
     res.status(404).json({ success: false, message: 'Scenario not found' });
     return;
@@ -311,7 +393,7 @@ export const updateScenario = async (req: Request, res: Response): Promise<void>
 };
 
 export const deleteScenario = async (req: Request, res: Response): Promise<void> => {
-  const scenario = await Scenario.findByIdAndDelete(req.params.id);
+  const scenario = await Scenario.findOneAndDelete(idOrSlugQuery(req.params.id));
   if (!scenario) {
     res.status(404).json({ success: false, message: 'Scenario not found' });
     return;
@@ -326,7 +408,6 @@ export const getConfig = async (req: Request, res: Response): Promise<void> => {
 
 export const updateConfig = async (req: Request, res: Response): Promise<void> => {
   const updates = req.body as Partial<AppConfig>;
-  updateLocalConfig(updates);
-  const config = await getAppConfig();
+  const config = await updateLocalConfig(updates);
   res.json({ success: true, message: 'Config updated', data: config });
 };

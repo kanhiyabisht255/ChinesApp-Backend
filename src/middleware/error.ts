@@ -10,13 +10,32 @@ export const errorHandler = (
   err: AppError,
   req: Request,
   res: Response,
-  _next: NextFunction
+  next: NextFunction
 ): void => {
-  const statusCode = err.statusCode || 500;
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+
+  const mongoError = err as AppError & { name?: string; keyValue?: Record<string, unknown> };
+  let statusCode = err.statusCode || 500;
+  let message = err.message || 'Internal Server Error';
+
+  if (mongoError.code === '11000') {
+    statusCode = 409;
+    message = 'A record with this value already exists';
+  } else if (mongoError.name === 'ValidationError' || mongoError.name === 'CastError' || mongoError.name === 'MulterError') {
+    statusCode = 400;
+  } else if (statusCode >= 500 && process.env.NODE_ENV === 'production') {
+    message = 'Internal server error';
+  }
+
+  if (statusCode >= 500) console.error(`${req.method} ${req.path} failed:`, err);
   
   res.status(statusCode).json({
     success: false,
-    message: err.message || 'Internal Server Error',
+    message,
+    ...(err.code && statusCode < 500 ? { code: err.code } : {}),
     ...(process.env.NODE_ENV === 'development' && {
       stack: err.stack,
       error: err,

@@ -36,11 +36,7 @@ export const setupVoiceSocket = (io: Server): void => {
       }
       
       try {
-        const aiResponse = await generateAIResponse(
-          data.text,
-          session.context,
-          true
-        );
+        const aiResponse = await generateAIResponse(data.text, session.context, { isVoiceCall: true });
         
         session.context.push(data.text);
         session.context.push(aiResponse.chinese);
