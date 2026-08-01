@@ -4,6 +4,7 @@ import {
   getCourse,
   getLessons,
   getLesson,
+  getSkillCollections,
   completeLesson,
   getScenarios,
   getScenario,
@@ -18,6 +19,7 @@ router.get('/courses/:id', asyncHandler(optionalAuthMiddleware), asyncHandler(ge
 router.get('/courses/:courseId/lessons', asyncHandler(optionalAuthMiddleware), asyncHandler(getLessons));
 router.get('/lessons/:id', asyncHandler(optionalAuthMiddleware), asyncHandler(getLesson));
 router.post('/lessons/:lessonId/complete', asyncHandler(authMiddleware), asyncHandler(completeLesson));
+router.get('/skills/:skill', asyncHandler(optionalAuthMiddleware), asyncHandler(getSkillCollections));
 
 router.get('/scenarios', asyncHandler(optionalAuthMiddleware), asyncHandler(getScenarios));
 router.get('/scenarios/:id', asyncHandler(optionalAuthMiddleware), asyncHandler(getScenario));

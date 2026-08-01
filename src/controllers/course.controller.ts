@@ -93,6 +93,69 @@ export const getLesson = async (req: Request, res: Response): Promise<void> => {
   res.json({ success: true, data: localizeLesson(lesson, language) });
 };
 
+export const getSkillCollections = async (req: Request, res: Response): Promise<void> => {
+  const skill = req.params.skill;
+  if (skill !== 'vocabulary' && skill !== 'grammar') {
+    res.status(400).json({ success: false, message: 'Skill must be vocabulary or grammar' });
+    return;
+  }
+
+  const language = await getRequestLanguage(req);
+  const premiumAccess = await hasPremiumAccess(req);
+  const lessonType = skill === 'vocabulary' ? 'vocabulary' : 'grammar';
+  const [courses, lessons] = await Promise.all([
+    Course.find({ isPublished: true }).sort({ order: 1 }),
+    Lesson.find({ isPublished: true, type: lessonType }).sort({ order: 1 }),
+  ]);
+
+  const lessonByCourse = new Map<string, (typeof lessons)[number]>();
+  lessons.forEach(lesson => {
+    if (!lessonByCourse.has(lesson.courseId)) lessonByCourse.set(lesson.courseId, lesson);
+  });
+
+  const collections = courses.flatMap(course => {
+    const lesson = lessonByCourse.get(course._id.toString());
+    if (!lesson) return [];
+
+    const localizedCourse = localizeCourse(course, language);
+    const localizedLesson = localizeLesson(lesson, language);
+    const vocabulary = localizedLesson.vocab || [];
+    const grammarPoints = localizedLesson.grammarPoints || [];
+    const preview = skill === 'vocabulary' ? vocabulary[0] : grammarPoints[0];
+    const localizedGrammarSentence = skill === 'grammar'
+      ? localizedLesson.sentences?.find((sentence: Record<string, any>) => sentence.chinese === preview?.example)
+      : undefined;
+    const isLocked = lesson.isPremium && !premiumAccess;
+
+    return [{
+      id: `${course.slug}-${skill}`,
+      skill,
+      courseId: course._id.toString(),
+      courseTitle: localizedCourse.title,
+      courseTitleCn: course.titleCn,
+      hskLevel: course.hskLevel,
+      lessonId: lesson._id.toString(),
+      lessonTitle: localizedLesson.title,
+      lessonTitleCn: lesson.titleCn,
+      description: localizedLesson.description,
+      previewChinese: skill === 'vocabulary' ? preview?.chinese || '' : preview?.example || '',
+      previewPinyin: skill === 'vocabulary' ? preview?.pinyin || '' : preview?.examplePinyin || '',
+      previewTranslation: skill === 'vocabulary'
+        ? preview?.english || ''
+        : localizedGrammarSentence?.english || preview?.exampleTranslation || '',
+      explanation: skill === 'grammar' ? preview?.explanation || '' : '',
+      itemCount: skill === 'vocabulary' ? vocabulary.length : grammarPoints.length,
+      estimatedMinutes: lesson.estimatedMinutes,
+      isPremium: lesson.isPremium,
+      isLocked,
+      color: course.color,
+      order: course.order,
+    }];
+  });
+
+  res.json({ success: true, data: collections });
+};
+
 export const completeLesson = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
   const { lessonId } = req.params;
