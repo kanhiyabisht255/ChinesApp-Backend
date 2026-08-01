@@ -287,9 +287,9 @@ export const createGemOrder = async (req: Request, res: Response): Promise<void>
 export const getPlans = async (req: Request, res: Response): Promise<void> => {
   const pricing = (await getAppConfig()).pricing;
   const plans = [
-    { id: 'monthly', name: 'Monthly', price: pricing.monthly, currency: 'INR', period: '/month', features: ['Unlimited AI calls', 'All scenarios', 'Full courses', 'Detailed reports'] },
-    { id: 'yearly', name: 'Annual', price: pricing.yearly, currency: 'INR', period: '/year', discount: 'Save 50%', features: ['Everything in Monthly', '2 months FREE', 'Priority AI', 'Offline access'], isPopular: true },
-    { id: 'lifetime', name: 'Lifetime', price: pricing.lifetime, currency: 'INR', period: 'one-time', features: ['Pay once forever', 'All updates', 'All features', 'No recurring'], },
+    { id: 'monthly', name: 'Monthly', price: pricing.monthly, currency: 'INR', period: '/month', features: ['Unlimited AI calls and chat', 'All Premium scenarios and courses', 'No ads'] },
+    { id: 'yearly', name: 'Annual', price: pricing.yearly, currency: 'INR', period: '/year', discount: 'Best subscription value', features: ['Same Premium access as Monthly', 'Billed once per year', 'No ads'], isPopular: true },
+    { id: 'lifetime', name: 'Lifetime', price: pricing.lifetime, currency: 'INR', period: 'one-time', features: ['One-time purchase', 'Unlimited AI and Premium content', 'No recurring payment'], },
   ];
   
   res.json({ success: true, data: plans });

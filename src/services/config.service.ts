@@ -5,6 +5,7 @@ const DEFAULT_CONFIG: AppConfig = {
   minAppVersion: '1.0.0',
   forceUpdate: false,
   maintenanceMode: false,
+  supportEmail: 'support@chinesapp.com',
   features: {
     voiceCallEnabled: true,
     chatEnabled: true,
@@ -17,17 +18,26 @@ const DEFAULT_CONFIG: AppConfig = {
     transcriptionModel: 'gpt-transcribe',
     ttsModel: 'gpt-4o-mini-tts',
     ttsVoice: 'marin',
+    ttsSpeed: 0.9,
   },
   pricing: {
     monthly: 499,
     yearly: 2999,
     lifetime: 7999,
   },
+  monetization: {
+    freeVoiceCallsPerDay: 3,
+    freeVoiceTurnsPerDay: 10,
+    freeChatMessagesPerDay: 20,
+    voiceCallGemCost: 20,
+    voiceTurnGemCost: 5,
+    chatMessageGemCost: 5,
+  },
   ads: {
     enabled: true,
     bannerEnabled: true,
     interstitialEnabled: true,
-    rewardedEnabled: true,
+    rewardedEnabled: false,
     interstitialCooldownSeconds: 180,
     bannerAdUnitId: '',
     interstitialAdUnitId: '',
@@ -45,6 +55,7 @@ const mergeConfig = (base: AppConfig, updates: Partial<AppConfig>): AppConfig =>
   features: { ...base.features, ...(updates.features || {}) },
   aiConfig: { ...base.aiConfig, ...(updates.aiConfig || {}) },
   pricing: { ...base.pricing, ...(updates.pricing || {}) },
+  monetization: { ...base.monetization, ...(updates.monetization || {}) },
   ads: { ...base.ads, ...(updates.ads || {}) },
 });
 
@@ -67,6 +78,9 @@ export const updateLocalConfig = async (updates: Partial<AppConfig>): Promise<Ap
   cachedConfig = {
     ...merged,
     minAppVersion: /^\d+\.\d+\.\d+$/.test(merged.minAppVersion) ? merged.minAppVersion : current.minAppVersion,
+    supportEmail: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(merged.supportEmail || ''))
+      ? String(merged.supportEmail).trim().slice(0, 200)
+      : current.supportEmail,
     aiConfig: {
       model: String(merged.aiConfig.model || current.aiConfig.model).trim().slice(0, 100),
       maxTokens: Math.max(64, Math.min(Number(merged.aiConfig.maxTokens) || current.aiConfig.maxTokens, 2000)),
@@ -74,11 +88,20 @@ export const updateLocalConfig = async (updates: Partial<AppConfig>): Promise<Ap
       transcriptionModel: String(merged.aiConfig.transcriptionModel || current.aiConfig.transcriptionModel).trim().slice(0, 100),
       ttsModel: String(merged.aiConfig.ttsModel || current.aiConfig.ttsModel).trim().slice(0, 100),
       ttsVoice: String(merged.aiConfig.ttsVoice || current.aiConfig.ttsVoice).trim().slice(0, 50),
+      ttsSpeed: Math.max(0.5, Math.min(Number(merged.aiConfig.ttsSpeed) || current.aiConfig.ttsSpeed, 1.2)),
     },
     pricing: {
       monthly: Math.max(1, Math.min(Number(merged.pricing.monthly) || current.pricing.monthly, 1_000_000)),
       yearly: Math.max(1, Math.min(Number(merged.pricing.yearly) || current.pricing.yearly, 1_000_000)),
       lifetime: Math.max(1, Math.min(Number(merged.pricing.lifetime) || current.pricing.lifetime, 1_000_000)),
+    },
+    monetization: {
+      freeVoiceCallsPerDay: Math.max(0, Math.min(Math.round(Number(merged.monetization.freeVoiceCallsPerDay) || 0), 1000)),
+      freeVoiceTurnsPerDay: Math.max(0, Math.min(Math.round(Number(merged.monetization.freeVoiceTurnsPerDay) || 0), 1000)),
+      freeChatMessagesPerDay: Math.max(0, Math.min(Math.round(Number(merged.monetization.freeChatMessagesPerDay) || 0), 10000)),
+      voiceCallGemCost: Math.max(1, Math.min(Math.round(Number(merged.monetization.voiceCallGemCost) || current.monetization.voiceCallGemCost), 100000)),
+      voiceTurnGemCost: Math.max(1, Math.min(Math.round(Number(merged.monetization.voiceTurnGemCost) || current.monetization.voiceTurnGemCost), 100000)),
+      chatMessageGemCost: Math.max(1, Math.min(Math.round(Number(merged.monetization.chatMessageGemCost) || current.monetization.chatMessageGemCost), 100000)),
     },
     ads: {
       enabled: Boolean(merged.ads.enabled),

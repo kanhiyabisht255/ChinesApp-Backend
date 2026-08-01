@@ -9,7 +9,7 @@ import {
   localizeScenario,
 } from '../services/localization.service';
 import { hasActivePremium } from '../services/entitlement.service';
-import { normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
+import { localWeekdayIndex, localWeekKey, normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
 
 const idOrSlugQuery = (value: string): Record<string, unknown> =>
   mongoose.isValidObjectId(value)
@@ -43,8 +43,27 @@ const redactPremiumScenario = (scenario: Record<string, any>): Record<string, an
 
 export const getCourses = async (req: Request, res: Response): Promise<void> => {
   const language = await getRequestLanguage(req);
-  const courses = await Course.find({ isPublished: true }).sort({ order: 1 });
-  res.json({ success: true, data: courses.map(course => localizeCourse(course, language)) });
+  const userId = (req as AuthRequest).userId;
+  const [courses, progress] = await Promise.all([
+    Course.find({ isPublished: true }).sort({ order: 1 }),
+    userId ? Progress.findOne({ userId }).select('completedLessonIds').lean() : null,
+  ]);
+  const completedIds = new Set(progress?.completedLessonIds || []);
+  const completedLessons = completedIds.size > 0
+    ? await Lesson.find({ _id: { $in: [...completedIds] }, isPublished: true }).select('_id courseId').lean()
+    : [];
+  const completedByCourse = new Map<string, number>();
+  completedLessons.forEach(lesson => {
+    completedByCourse.set(lesson.courseId, (completedByCourse.get(lesson.courseId) || 0) + 1);
+  });
+
+  res.json({
+    success: true,
+    data: courses.map(course => ({
+      ...localizeCourse(course, language),
+      completedLessons: completedByCourse.get(course._id.toString()) || 0,
+    })),
+  });
 };
 
 export const getCourse = async (req: Request, res: Response): Promise<void> => {
@@ -57,7 +76,21 @@ export const getCourse = async (req: Request, res: Response): Promise<void> => {
     return;
   }
   
-  res.json({ success: true, data: localizeCourse(course, language) });
+  const userId = (req as AuthRequest).userId;
+  const progress = userId
+    ? await Progress.findOne({ userId }).select('completedLessonIds').lean()
+    : null;
+  const completedLessons = progress?.completedLessonIds?.length
+    ? await Lesson.countDocuments({
+        _id: { $in: progress.completedLessonIds },
+        courseId: course._id.toString(),
+        isPublished: true,
+      })
+    : 0;
+  res.json({
+    success: true,
+    data: { ...localizeCourse(course, language), completedLessons },
+  });
 };
 
 export const getLessons = async (req: Request, res: Response): Promise<void> => {
@@ -177,7 +210,13 @@ export const completeLesson = async (req: Request, res: Response): Promise<void>
   const alreadyCompleted = progress?.completedLessonIds?.includes(lessonKey) || false;
   const xpEarned = alreadyCompleted ? 0 : lesson.xpReward;
   const timezoneOffset = normalizeTimezoneOffset(req.header('x-timezone-offset'));
-  const streak = await recordLearningActivity(authReq.userId, timezoneOffset);
+  const streak = await recordLearningActivity(
+    authReq.userId,
+    timezoneOffset,
+    new Date(),
+    undefined,
+    lesson.estimatedMinutes,
+  );
 
   if (streak === null) {
     res.status(404).json({ success: false, message: 'User not found' });
@@ -188,14 +227,65 @@ export const completeLesson = async (req: Request, res: Response): Promise<void>
     await User.findByIdAndUpdate(authReq.userId, { $inc: { xp: xpEarned } });
   }
 
+  const existing = progress?.toObject() as Record<string, any> | undefined;
+  const progressSet: Record<string, unknown> = {
+    lastLessonId: lessonKey,
+    lastUpdated: new Date(),
+  };
+  if (!alreadyCompleted) {
+    const skillNames = ['speaking', 'tones', 'vocabulary', 'grammar', 'listening', 'reading'] as const;
+    const practicedSkills = new Set<(typeof skillNames)[number]>();
+    if ((lesson.vocab || []).length > 0) practicedSkills.add('vocabulary');
+    if ((lesson.grammarPoints || []).length > 0) practicedSkills.add('grammar');
+    if ((lesson.sentences || []).length > 0) practicedSkills.add('reading');
+    if ((lesson.exercises || []).some(item => item.type === 'speak')) practicedSkills.add('speaking');
+    if ((lesson.exercises || []).some(item => item.type === 'listen_select')) practicedSkills.add('listening');
+    if (lesson.type === 'pronunciation') {
+      practicedSkills.add('speaking');
+      practicedSkills.add('tones');
+      practicedSkills.add('listening');
+    }
+    if (lesson.type === 'dialogue') {
+      practicedSkills.add('speaking');
+      practicedSkills.add('listening');
+    }
+    if (lesson.type === 'listening') practicedSkills.add('listening');
+    if (lesson.type === 'grammar') practicedSkills.add('grammar');
+    if (lesson.type === 'reading' || lesson.type === 'story' || lesson.type === 'character') practicedSkills.add('reading');
+
+    const scores: Record<(typeof skillNames)[number], number> = {
+      speaking: Number(existing?.speaking || 0),
+      tones: Number(existing?.tones || 0),
+      vocabulary: Number(existing?.vocabulary || 0),
+      grammar: Number(existing?.grammar || 0),
+      listening: Number(existing?.listening || 0),
+      reading: Number(existing?.reading || 0),
+    };
+    practicedSkills.forEach(skill => {
+      scores[skill] = Math.min(100, scores[skill] + (lesson.type === 'quiz' ? 3 : 2));
+    });
+    skillNames.forEach(skill => { progressSet[skill] = scores[skill]; });
+    progressSet.overall = Math.round(skillNames.reduce((sum, skill) => sum + scores[skill], 0) / skillNames.length);
+
+    const weekKey = localWeekKey(new Date(), timezoneOffset);
+    const weeklyXp = Array.from(
+      { length: 7 },
+      (_, index) => existing?.weeklyXpWeek === weekKey ? Number(existing?.weeklyXp?.[index] || 0) : 0,
+    );
+    const weekday = localWeekdayIndex(new Date(), timezoneOffset);
+    weeklyXp[weekday] += xpEarned;
+    progressSet.weeklyXp = weeklyXp;
+    progressSet.weeklyXpWeek = weekKey;
+  }
+
   await Progress.findOneAndUpdate(
     { userId: authReq.userId },
     {
       ...(alreadyCompleted ? {} : {
-        $inc: { wordsLearned: lesson.vocab.length, totalSessions: 1 },
+        $inc: { wordsLearned: (lesson.vocab || []).length, totalSessions: 1, totalMinutes: lesson.estimatedMinutes },
         $addToSet: { completedLessonIds: lessonKey },
       }),
-      $set: { lastLessonId: lessonKey, lastUpdated: new Date() },
+      $set: progressSet,
     },
     { upsert: true }
   );

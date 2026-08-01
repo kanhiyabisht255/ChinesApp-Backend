@@ -7,7 +7,10 @@ import {
   updateStreak,
   getGems,
   spendGems,
+  purchaseAiCredit,
   getCallHistory,
+  getPurchaseHistory,
+  deleteAccount,
   logout,
 } from '../controllers/user.controller';
 import { authMiddleware } from '../middleware/auth';
@@ -22,7 +25,10 @@ router.put('/progress', asyncHandler(authMiddleware), asyncHandler(updateProgres
 router.post('/streak', asyncHandler(authMiddleware), asyncHandler(updateStreak));
 router.get('/gems', asyncHandler(authMiddleware), asyncHandler(getGems));
 router.post('/gems/spend', asyncHandler(authMiddleware), asyncHandler(spendGems));
+router.post('/ai-credit', asyncHandler(authMiddleware), asyncHandler(purchaseAiCredit));
 router.get('/calls', asyncHandler(authMiddleware), asyncHandler(getCallHistory));
+router.get('/purchases', asyncHandler(authMiddleware), asyncHandler(getPurchaseHistory));
+router.delete('/account', asyncHandler(authMiddleware), asyncHandler(deleteAccount));
 router.post('/logout', asyncHandler(authMiddleware), asyncHandler(logout));
 
 export default router;

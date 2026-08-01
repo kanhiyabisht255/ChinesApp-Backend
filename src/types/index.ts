@@ -14,6 +14,7 @@ export interface IUser {
   lastStreakDate?: Date;
   dailyGoal: number;
   todayMinutes: number;
+  lastDailyProgressDate?: Date;
   hskLevel: number;
   nativeLanguage: string;
   learningGoal?: 'general' | 'travel' | 'business' | 'hsk' | 'culture';
@@ -47,6 +48,7 @@ export interface IProgress {
   reading: number;
   overall: number;
   weeklyXp: number[];
+  weeklyXpWeek?: string;
   totalSessions: number;
   totalMinutes: number;
   wordsLearned: number;
@@ -85,6 +87,8 @@ export interface IChatMessage {
   content: string;
   pinyin?: string;
   translation?: string;
+  correction?: string;
+  feedback?: string;
   createdAt: Date;
 }
 
@@ -274,6 +278,7 @@ export interface AppConfig {
   minAppVersion: string;
   forceUpdate: boolean;
   maintenanceMode: boolean;
+  supportEmail: string;
   features: {
     voiceCallEnabled: boolean;
     chatEnabled: boolean;
@@ -286,11 +291,20 @@ export interface AppConfig {
     transcriptionModel: string;
     ttsModel: string;
     ttsVoice: string;
+    ttsSpeed: number;
   };
   pricing: {
     monthly: number;
     yearly: number;
     lifetime: number;
+  };
+  monetization: {
+    freeVoiceCallsPerDay: number;
+    freeVoiceTurnsPerDay: number;
+    freeChatMessagesPerDay: number;
+    voiceCallGemCost: number;
+    voiceTurnGemCost: number;
+    chatMessageGemCost: number;
   };
   ads: {
     enabled: boolean;

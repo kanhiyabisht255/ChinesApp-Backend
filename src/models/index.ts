@@ -102,6 +102,7 @@ const userSchema = new Schema<IUserDoc>({
   lastStreakDate: { type: Date },
   dailyGoal: { type: Number, default: 10 },
   todayMinutes: { type: Number, default: 0 },
+  lastDailyProgressDate: { type: Date },
   hskLevel: { type: Number, default: 1 },
   nativeLanguage: { type: String, default: 'en' },
   learningGoal: { type: String, enum: ['general', 'travel', 'business', 'hsk', 'culture'], default: 'general' },
@@ -119,6 +120,7 @@ const progressSchema = new Schema<IProgressDoc>({
   reading: { type: Number, default: 0 },
   overall: { type: Number, default: 0 },
   weeklyXp: [{ type: Number }],
+  weeklyXpWeek: { type: String },
   totalSessions: { type: Number, default: 0 },
   totalMinutes: { type: Number, default: 0 },
   wordsLearned: { type: Number, default: 0 },
@@ -146,6 +148,8 @@ const chatMessageSchema = new Schema<IChatMessageDoc>({
   content: { type: String, required: true },
   pinyin: { type: String },
   translation: { type: String },
+  correction: { type: String },
+  feedback: { type: String },
 }, { timestamps: true });
 
 const courseSchema = new Schema<ICourseDoc>({

@@ -6,7 +6,7 @@ import type { AuthRequest } from '../types';
 import { normalizeLanguageCode } from '../services/localization.service';
 import { hasActivePremium } from '../services/entitlement.service';
 import { getIntegrationSecret } from '../services/integration-secrets.service';
-import { normalizeTimezoneOffset, visibleStreak } from '../services/streak.service';
+import { normalizeTimezoneOffset, visibleStreak, visibleTodayMinutes } from '../services/streak.service';
 
 export const sendOTP = async (req: Request, res: Response): Promise<void> => {
   const phone = normalizePhone(req.body.phone);
@@ -312,7 +312,7 @@ export const getMe = async (req: Request, res: Response): Promise<void> => {
       xp: user.xp,
       streak: visibleStreak(user.streak, user.lastStreakDate, new Date(), timezoneOffset),
       dailyGoal: user.dailyGoal,
-      todayMinutes: user.todayMinutes,
+      todayMinutes: visibleTodayMinutes(user.todayMinutes, user.lastDailyProgressDate, new Date(), timezoneOffset),
       hskLevel: user.hskLevel,
       nativeLanguage: user.nativeLanguage,
       learningGoal: user.learningGoal,

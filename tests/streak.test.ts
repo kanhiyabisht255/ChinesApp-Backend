@@ -1,7 +1,10 @@
 import {
   daysBetweenLocalDates,
+  localWeekdayIndex,
+  localWeekKey,
   normalizeTimezoneOffset,
   streakAfterLearningActivity,
+  visibleTodayMinutes,
   visibleStreak,
 } from '../src/services/streak.service';
 
@@ -36,5 +39,22 @@ describe('daily learning streak', () => {
     expect(normalizeTimezoneOffset('not-a-number')).toBe(0);
     expect(normalizeTimezoneOffset(2_000)).toBe(840);
     expect(normalizeTimezoneOffset(-2_000)).toBe(-720);
+  });
+
+  test('shows daily minutes only on the learner current local day', () => {
+    const activity = new Date('2026-08-01T18:40:00Z');
+    expect(visibleTodayMinutes(12, activity, new Date('2026-08-02T10:00:00Z'), 330)).toBe(12);
+    expect(visibleTodayMinutes(12, activity, new Date('2026-08-02T19:00:00Z'), 330)).toBe(0);
+  });
+
+  test('maps the learner local weekday to Monday-first report columns', () => {
+    expect(localWeekdayIndex(new Date('2026-08-02T16:30:00Z'), 540)).toBe(0); // Monday in Japan
+    expect(localWeekdayIndex(new Date('2026-08-02T10:00:00Z'), 0)).toBe(6); // Sunday UTC
+  });
+
+  test('uses a stable local Monday key to reset weekly XP', () => {
+    expect(localWeekKey(new Date('2026-08-02T16:30:00Z'), 540)).toBe('2026-08-03');
+    expect(localWeekKey(new Date('2026-08-09T14:59:00Z'), 540)).toBe('2026-08-03');
+    expect(localWeekKey(new Date('2026-08-09T15:01:00Z'), 540)).toBe('2026-08-10');
   });
 });

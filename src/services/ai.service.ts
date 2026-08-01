@@ -165,6 +165,7 @@ export const generateSpeech = async (text: string): Promise<Buffer> => {
       input: text,
       instructions: 'Speak natural standard Mandarin Chinese with a warm, patient tutor voice. Pronounce tones clearly at a slightly slower learning pace without sounding robotic.',
       response_format: 'mp3',
+      speed: appConfig.aiConfig.ttsSpeed,
     });
     
     const buffer = Buffer.from(await response.arrayBuffer());

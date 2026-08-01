@@ -1,12 +1,7 @@
 import { AIUsage } from '../models';
+import { getAppConfig } from './config.service';
 
 export type AiQuotaType = 'voiceCalls' | 'voiceTurns' | 'chatMessages';
-
-const FREE_LIMITS: Record<AiQuotaType, number> = {
-  voiceCalls: 3,
-  voiceTurns: 10,
-  chatMessages: 20,
-};
 
 const utcDateKey = (): string => new Date().toISOString().slice(0, 10);
 
@@ -22,10 +17,16 @@ export const consumeAiQuota = async (
   isPremium: boolean
 ): Promise<{ allowed: boolean; remaining?: number; limit?: number }> => {
   if (isPremium) return { allowed: true };
-  if (!userId) return { allowed: false, remaining: 0, limit: FREE_LIMITS[type] };
+  const config = await getAppConfig();
+  const freeLimits: Record<AiQuotaType, number> = {
+    voiceCalls: config.monetization.freeVoiceCallsPerDay,
+    voiceTurns: config.monetization.freeVoiceTurnsPerDay,
+    chatMessages: config.monetization.freeChatMessagesPerDay,
+  };
+  if (!userId) return { allowed: false, remaining: 0, limit: freeLimits[type] };
 
   const date = utcDateKey();
-  const limit = FREE_LIMITS[type];
+  const limit = freeLimits[type];
   await AIUsage.findOneAndUpdate(
     { userId, date },
     { $setOnInsert: { voiceCalls: 0, voiceTurns: 0, chatMessages: 0 } },

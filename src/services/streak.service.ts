@@ -20,6 +20,18 @@ export const daysBetweenLocalDates = (
   timezoneOffsetMinutes: number,
 ): number => localDayNumber(current, timezoneOffsetMinutes) - localDayNumber(previous, timezoneOffsetMinutes);
 
+/** Monday = 0 ... Sunday = 6 in the learner's local timezone. */
+export const localWeekdayIndex = (date: Date, timezoneOffsetMinutes: number): number => {
+  const shifted = new Date(date.getTime() + normalizeTimezoneOffset(timezoneOffsetMinutes) * 60_000);
+  return (shifted.getUTCDay() + 6) % 7;
+};
+
+export const localWeekKey = (date: Date, timezoneOffsetMinutes: number): string => {
+  const shifted = new Date(date.getTime() + normalizeTimezoneOffset(timezoneOffsetMinutes) * 60_000);
+  shifted.setUTCDate(shifted.getUTCDate() - ((shifted.getUTCDay() + 6) % 7));
+  return shifted.toISOString().slice(0, 10);
+};
+
 export const streakAfterLearningActivity = (
   currentStreak: number,
   lastStreakDate: Date | null | undefined,
@@ -46,11 +58,24 @@ export const visibleStreak = (
     : currentStreak;
 };
 
+export const visibleTodayMinutes = (
+  todayMinutes: number,
+  lastDailyProgressDate: Date | null | undefined,
+  now: Date,
+  timezoneOffsetMinutes: number,
+): number => {
+  if (!lastDailyProgressDate || todayMinutes <= 0) return 0;
+  return daysBetweenLocalDates(lastDailyProgressDate, now, timezoneOffsetMinutes) === 0
+    ? todayMinutes
+    : 0;
+};
+
 export const recordLearningActivity = async (
   userId: string | undefined,
   timezoneOffsetMinutes: number,
   now = new Date(),
   session?: ClientSession,
+  learningMinutes = 0,
 ): Promise<number | null> => {
   if (!userId) return null;
   const query = User.findById(userId);
@@ -64,10 +89,27 @@ export const recordLearningActivity = async (
     now,
     timezoneOffsetMinutes,
   );
+  const previousMinutes = visibleTodayMinutes(
+    user.todayMinutes,
+    user.lastDailyProgressDate,
+    now,
+    timezoneOffsetMinutes,
+  );
+  const todayMinutes = Math.min(
+    24 * 60,
+    previousMinutes + Math.max(0, Math.round(learningMinutes)),
+  );
 
   await User.updateOne(
     { _id: user._id },
-    { $set: { streak, lastStreakDate: now } },
+    {
+      $set: {
+        streak,
+        lastStreakDate: now,
+        todayMinutes,
+        lastDailyProgressDate: now,
+      },
+    },
     session ? { session } : undefined,
   );
   return streak;

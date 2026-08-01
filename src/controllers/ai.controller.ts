@@ -11,6 +11,7 @@ import mongoose from 'mongoose';
 import { User, Progress, CallSession, Scenario } from '../models';
 import type { AuthRequest } from '../types';
 import { consumeAiQuota, hasActivePremium, refundAiQuota } from '../services/entitlement.service';
+import { localWeekdayIndex, localWeekKey, normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
 
 const sendAIError = (res: Response, error: unknown, fallbackMessage: string): void => {
   if (error instanceof AIServiceError) {
@@ -262,6 +263,9 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
   let completed = false;
   let safeDuration = 0;
   let xpEarned = 0;
+  let streak: number | null = null;
+  let todayMinutes = 0;
+  const timezoneOffset = normalizeTimezoneOffset(req.header('x-timezone-offset'));
   try {
     await dbSession.withTransaction(async () => {
       const activeCall = await CallSession.findOne({
@@ -273,15 +277,19 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
 
       const elapsedSeconds = Math.max(0, Math.floor((Date.now() - activeCall.createdAt.getTime()) / 1000));
       safeDuration = Math.min(clientDuration, elapsedSeconds + 10, 7200);
-      xpEarned = Math.floor(safeDuration / 6);
-      const minutesEarned = Math.floor(safeDuration / 60);
+      const hasLearnerTurn = safeTranscript.some(item => item.role === 'user');
+      const hasMeaningfulPractice = hasLearnerTurn && safeDuration >= 20;
+      xpEarned = hasMeaningfulPractice ? Math.min(50, Math.floor(safeDuration / 6)) : 0;
+      const minutesEarned = hasMeaningfulPractice
+        ? Math.max(1, Math.floor(safeDuration / 60))
+        : 0;
       const call = await CallSession.findOneAndUpdate(
         { _id: activeCall._id, status: 'started' },
         {
           $set: {
             status: 'completed',
             duration: safeDuration,
-            score: safeScore,
+            score: hasLearnerTurn ? safeScore : 0,
             feedback: typeof feedback === 'string' && feedback.trim()
               ? feedback.trim().slice(0, 2000)
               : 'Conversation completed. Review the transcript and keep practicing.',
@@ -295,16 +303,61 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
 
       const user = await User.findByIdAndUpdate(
         authReq.userId,
-        { $inc: { xp: xpEarned, todayMinutes: minutesEarned } },
+        { $inc: { xp: xpEarned } },
         { new: true, session: dbSession }
       );
       if (!user) throw new Error('User not found');
 
+      if (hasMeaningfulPractice) {
+        streak = await recordLearningActivity(
+          authReq.userId,
+          timezoneOffset,
+          new Date(),
+          dbSession,
+          minutesEarned,
+        );
+        const refreshedUser = await User.findById(authReq.userId).session(dbSession);
+        todayMinutes = refreshedUser?.todayMinutes || 0;
+      }
+
+      const currentProgress = await Progress.findOne({ userId: authReq.userId }).session(dbSession);
+      const progressSet: Record<string, unknown> = { lastUpdated: new Date() };
+      if (hasMeaningfulPractice) {
+        const previousSpeaking = Number(currentProgress?.speaking || 0);
+        const previousListening = Number(currentProgress?.listening || 0);
+        const speaking = previousSpeaking === 0
+          ? Math.round(safeScore)
+          : Math.round(previousSpeaking * 0.75 + safeScore * 0.25);
+        const listeningSample = Math.min(100, safeScore + 5);
+        const listening = previousListening === 0
+          ? Math.round(listeningSample)
+          : Math.round(previousListening * 0.85 + listeningSample * 0.15);
+        const scores = {
+          speaking,
+          tones: Number(currentProgress?.tones || 0),
+          vocabulary: Number(currentProgress?.vocabulary || 0),
+          grammar: Number(currentProgress?.grammar || 0),
+          listening,
+          reading: Number(currentProgress?.reading || 0),
+        };
+        progressSet.speaking = speaking;
+        progressSet.listening = listening;
+        progressSet.overall = Math.round(Object.values(scores).reduce((sum, value) => sum + value, 0) / 6);
+        const weekKey = localWeekKey(new Date(), timezoneOffset);
+        const weeklyXp = Array.from(
+          { length: 7 },
+          (_, index) => currentProgress?.weeklyXpWeek === weekKey ? Number(currentProgress?.weeklyXp?.[index] || 0) : 0,
+        );
+        weeklyXp[localWeekdayIndex(new Date(), timezoneOffset)] += xpEarned;
+        progressSet.weeklyXp = weeklyXp;
+        progressSet.weeklyXpWeek = weekKey;
+      }
+
       await Progress.findOneAndUpdate(
         { userId: authReq.userId },
         {
-          $inc: { totalSessions: 1, totalMinutes: minutesEarned },
-          $set: { lastUpdated: new Date() },
+          $inc: { totalSessions: hasMeaningfulPractice ? 1 : 0, totalMinutes: minutesEarned },
+          $set: progressSet,
         },
         { upsert: true, session: dbSession }
       );
@@ -322,7 +375,7 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
   res.json({
     success: true,
     message: 'Call ended and progress saved',
-    data: { xpEarned, duration: safeDuration },
+    data: { xpEarned, duration: safeDuration, streak, todayMinutes },
   });
 };
 
@@ -377,6 +430,8 @@ export const sendChatMessage = async (req: Request, res: Response): Promise<void
       content: aiResponse.chinese,
       pinyin: aiResponse.pinyin,
       translation: aiResponse.english,
+      correction: aiResponse.correction,
+      feedback: aiResponse.feedback,
     });
 
     res.json({
