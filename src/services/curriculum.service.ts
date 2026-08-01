@@ -16,9 +16,9 @@ export const syncCurriculum = async (options: SyncOptions = {}) => {
 
   if (hideLegacy) {
     await Promise.all([
-      Course.updateMany({ slug: { $exists: false } }, { $set: { isPublished: false } }),
-      Lesson.updateMany({ slug: { $exists: false } }, { $set: { isPublished: false } }),
-      Scenario.updateMany({ slug: { $exists: false } }, { $set: { isPublished: false } }),
+      Course.updateMany({ source: { $ne: 'packaged' } }, { $set: { isPublished: false } }),
+      Lesson.updateMany({ source: { $ne: 'packaged' } }, { $set: { isPublished: false } }),
+      Scenario.updateMany({ source: { $ne: 'packaged' } }, { $set: { isPublished: false } }),
     ]);
   }
 
