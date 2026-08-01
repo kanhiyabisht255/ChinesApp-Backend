@@ -2,7 +2,7 @@ import { COURSE_SEEDS } from './curriculum';
 import { QUALITY_LESSON_SEEDS } from './quality-lessons';
 import { QUALITY_SCENARIO_SEEDS } from './quality-scenarios';
 
-export const CURRICULUM_VERSION = '2026.08.150.quality-1';
+export const CURRICULUM_VERSION = '2026.08.150.quality-2';
 
 export const ALL_COURSE_SEEDS = [...COURSE_SEEDS];
 export const ALL_LESSON_SEEDS = [...QUALITY_LESSON_SEEDS];

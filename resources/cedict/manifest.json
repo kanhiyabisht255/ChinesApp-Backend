@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "shardCount": 64,
+  "entries": 124726,
+  "source": "CC-CEDICT",
+  "sourceUrl": "https://www.mdbg.net/chinese/dictionary?page=cc-cedict",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "library": "cc-cedict",
+  "libraryVersion": "1.1.1",
+  "dataUpdatedAt": "2026-08-01T20:12:28.026Z",
+  "generatedAt": "2026-08-01T20:29:15.756Z"
+}

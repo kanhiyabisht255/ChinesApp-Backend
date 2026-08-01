@@ -43,7 +43,10 @@ const scenarios = ALL_SCENARIO_SEEDS as any[];
 
 if (courses.length !== 150) fail('catalog.course-count', `Expected 150, found ${courses.length}`);
 if (lessons.length !== 600) fail('catalog.lesson-count', `Expected 600, found ${lessons.length}`);
-if (scenarios.length < 12) fail('catalog.scenario-count', `Expected at least 12, found ${scenarios.length}`);
+if (scenarios.length < 30) fail('catalog.scenario-count', `Expected at least 30, found ${scenarios.length}`);
+if (courses.filter(course => !course.isPremium).length < 8) {
+  fail('catalog.free-course-count', 'Expected at least 8 complete free courses');
+}
 
 rejectDuplicates('course.duplicate-slug', courses, course => course.slug, course => course.title);
 rejectDuplicates('course.duplicate-order', courses, course => String(course.order), course => course.slug);
