@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "seed": "tsx src/utils/seed.ts",
     "delete-legacy": "tsx src/utils/delete-legacy.ts",
+    "delete-orphans": "tsx src/utils/delete-orphans.ts",
     "fix-orders": "tsx src/utils/fix-orders.ts",
     "lint": "eslint src tests",
     "test": "jest"
