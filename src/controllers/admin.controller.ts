@@ -299,8 +299,14 @@ export const getAllCourses = async (req: Request, res: Response): Promise<void> 
 };
 
 export const createCourse = async (req: Request, res: Response): Promise<void> => {
+  let order = req.body.order;
+  if (!order || order < 1) {
+    const maxOrderCourse = await Course.findOne().sort({ order: -1 }).select('order');
+    order = (maxOrderCourse?.order || 0) + 1;
+  }
   const payload = {
     ...req.body,
+    order,
     slug: req.body.slug || slugify(req.body.title || `course-${Date.now()}`),
     isPublished: req.body.isPublished ?? true,
   };
@@ -345,8 +351,14 @@ export const createCourseLesson = async (req: Request, res: Response): Promise<v
     res.status(404).json({ success: false, message: 'Course not found' });
     return;
   }
+  let order = req.body.order;
+  if (!order || order < 1) {
+    const maxOrderLesson = await Lesson.findOne({ courseId: course._id.toString() }).sort({ order: -1 }).select('order');
+    order = (maxOrderLesson?.order || 0) + 1;
+  }
   const payload = {
     ...req.body,
+    order,
     courseId: course._id.toString(),
     slug: req.body.slug || slugify(`${req.body.title || 'lesson'}-${Date.now()}`),
     isPublished: req.body.isPublished ?? true,
@@ -398,8 +410,14 @@ export const getAllScenarios = async (req: Request, res: Response): Promise<void
 };
 
 export const createScenario = async (req: Request, res: Response): Promise<void> => {
+  let order = req.body.order;
+  if (!order || order < 1) {
+    const maxOrderScenario = await Scenario.findOne().sort({ order: -1 }).select('order');
+    order = (maxOrderScenario?.order || 0) + 1;
+  }
   const scenario = await Scenario.create({
     ...req.body,
+    order,
     slug: req.body.slug || slugify(req.body.title || `scenario-${Date.now()}`),
     isPublished: req.body.isPublished ?? true,
   });
