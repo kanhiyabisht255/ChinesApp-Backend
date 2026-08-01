@@ -150,6 +150,27 @@ export interface IExampleSentence {
   chinese: string;
   pinyin: string;
   english: string;
+  literalMeaning?: string;
+  breakdown?: ISentenceChunk[];
+  pattern?: string;
+  grammarNote?: string;
+  usageNote?: string;
+  substitutions?: ISubstitutionSentence[];
+  translations?: Map<string, string>;
+  explanationTranslations?: Map<string, Map<string, string>>;
+}
+
+export interface ISentenceChunk {
+  chinese: string;
+  pinyin: string;
+  meaning: string;
+  translations?: Map<string, string>;
+}
+
+export interface ISubstitutionSentence {
+  chinese: string;
+  pinyin: string;
+  english: string;
   translations?: Map<string, string>;
 }
 
@@ -161,6 +182,9 @@ export interface IExercise {
   answer: string;
   explanation?: string;
   translations?: Map<string, string>;
+  optionTranslations?: Map<string, string[]>;
+  answerTranslations?: Map<string, string>;
+  explanationTranslations?: Map<string, string>;
 }
 
 export interface IVocabItem {

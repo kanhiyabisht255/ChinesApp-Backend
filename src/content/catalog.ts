@@ -1,10 +1,12 @@
-import { COURSE_SEEDS, LESSON_SEEDS, SCENARIO_SEEDS } from './curriculum';
+import { COURSE_SEEDS } from './curriculum';
+import { QUALITY_LESSON_SEEDS } from './quality-lessons';
+import { QUALITY_SCENARIO_SEEDS } from './quality-scenarios';
 
-export const CURRICULUM_VERSION = '2026.08.150';
+export const CURRICULUM_VERSION = '2026.08.150.quality-1';
 
 export const ALL_COURSE_SEEDS = [...COURSE_SEEDS];
-export const ALL_LESSON_SEEDS = [...LESSON_SEEDS];
-export const ALL_SCENARIO_SEEDS = [...SCENARIO_SEEDS];
+export const ALL_LESSON_SEEDS = [...QUALITY_LESSON_SEEDS];
+export const ALL_SCENARIO_SEEDS = [...QUALITY_SCENARIO_SEEDS];
 
 export const CURRICULUM_CATALOG_STATS = {
   version: CURRICULUM_VERSION,

@@ -26,11 +26,32 @@ const dialogueItemSchema = new Schema({
   translations: { type: Map, of: String, default: {} },
 }, { _id: false });
 
-const exampleSentenceSchema = new Schema({
+const sentenceChunkSchema = new Schema({
+  chinese: { type: String, required: true },
+  pinyin: { type: String, required: true },
+  meaning: { type: String, required: true },
+  translations: { type: Map, of: String, default: {} },
+}, { _id: false });
+
+const substitutionSentenceSchema = new Schema({
   chinese: { type: String, required: true },
   pinyin: { type: String, required: true },
   english: { type: String, required: true },
   translations: { type: Map, of: String, default: {} },
+}, { _id: false });
+
+const exampleSentenceSchema = new Schema({
+  chinese: { type: String, required: true },
+  pinyin: { type: String, required: true },
+  english: { type: String, required: true },
+  literalMeaning: { type: String, default: '' },
+  breakdown: [sentenceChunkSchema],
+  pattern: { type: String, default: '' },
+  grammarNote: { type: String, default: '' },
+  usageNote: { type: String, default: '' },
+  substitutions: [substitutionSentenceSchema],
+  translations: { type: Map, of: String, default: {} },
+  explanationTranslations: { type: Map, of: Map, default: {} },
 }, { _id: false });
 
 const exerciseSchema = new Schema({
@@ -45,6 +66,9 @@ const exerciseSchema = new Schema({
   answer: { type: String, required: true },
   explanation: { type: String },
   translations: { type: Map, of: String, default: {} },
+  optionTranslations: { type: Map, of: [String], default: {} },
+  answerTranslations: { type: Map, of: String, default: {} },
+  explanationTranslations: { type: Map, of: String, default: {} },
 }, { _id: false });
 
 const vocabItemSchema = new Schema({

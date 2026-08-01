@@ -14,6 +14,23 @@ type SyncOptions = {
 export const syncCurriculum = async (options: SyncOptions = {}) => {
   const hideLegacy = options.hideLegacy ?? true;
 
+  // Packaged content is version-controlled. Remove only packaged records that no longer
+  // exist in the catalog; admin-created content is preserved (and optionally hidden).
+  await Promise.all([
+    Lesson.deleteMany({
+      source: 'packaged',
+      slug: { $nin: ALL_LESSON_SEEDS.map(lesson => lesson.slug) },
+    }),
+    Scenario.deleteMany({
+      source: 'packaged',
+      slug: { $nin: ALL_SCENARIO_SEEDS.map(scenario => scenario.slug) },
+    }),
+    Course.deleteMany({
+      source: 'packaged',
+      slug: { $nin: ALL_COURSE_SEEDS.map(course => course.slug) },
+    }),
+  ]);
+
   if (hideLegacy) {
     await Promise.all([
       Course.updateMany({ source: { $ne: 'packaged' } }, { $set: { isPublished: false } }),
@@ -121,9 +138,9 @@ export const getCurriculumStats = async () => {
       publishedLessons,
       publishedScenarios,
       isCurrent:
-        courses >= CURRICULUM_CATALOG_STATS.courses &&
-        lessons >= CURRICULUM_CATALOG_STATS.lessons &&
-        scenarios >= CURRICULUM_CATALOG_STATS.scenarios,
+        courses === CURRICULUM_CATALOG_STATS.courses &&
+        lessons === CURRICULUM_CATALOG_STATS.lessons &&
+        scenarios === CURRICULUM_CATALOG_STATS.scenarios,
     },
   };
 };

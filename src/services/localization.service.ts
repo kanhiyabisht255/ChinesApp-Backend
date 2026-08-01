@@ -66,6 +66,14 @@ const translatedValue = (translations: unknown, language: string, fallback: stri
   return typeof translated === 'string' && translated.trim() ? translated : fallback;
 };
 
+const translatedArray = (translations: unknown, language: string, fallback: string[]): string[] => {
+  if (language === 'en') return fallback;
+  const translated = getMapValue(translations, language);
+  return Array.isArray(translated) && translated.every(item => typeof item === 'string')
+    ? translated
+    : fallback;
+};
+
 const toPlainObject = (document: unknown): Record<string, any> => {
   if (document && typeof (document as { toObject?: unknown }).toObject === 'function') {
     return (document as { toObject: (options?: unknown) => Record<string, any> }).toObject({ flattenMaps: true });
@@ -106,10 +114,53 @@ export const localizeLesson = (lesson: unknown, language: string): Record<string
     sentences: plain.sentences?.map((sentence: Record<string, any>) => ({
       ...sentence,
       english: translatedValue(sentence.translations, language, sentence.english),
+      literalMeaning: translatedField(
+        sentence.explanationTranslations,
+        language,
+        'literalMeaning',
+        sentence.literalMeaning || sentence.english
+      ),
+      pattern: translatedField(
+        sentence.explanationTranslations,
+        language,
+        'pattern',
+        sentence.pattern || ''
+      ),
+      grammarNote: translatedField(
+        sentence.explanationTranslations,
+        language,
+        'grammarNote',
+        sentence.grammarNote || ''
+      ),
+      usageNote: translatedField(
+        sentence.explanationTranslations,
+        language,
+        'usageNote',
+        sentence.usageNote || ''
+      ),
+      breakdown: sentence.breakdown?.map((chunk: Record<string, any>) => ({
+        ...chunk,
+        meaning: translatedValue(chunk.translations, language, chunk.meaning),
+      })) || [],
+      substitutions: sentence.substitutions?.map((substitution: Record<string, any>) => ({
+        ...substitution,
+        english: translatedValue(
+          substitution.translations,
+          language,
+          substitution.english
+        ),
+      })) || [],
     })) || [],
     exercises: plain.exercises?.map((exercise: Record<string, any>) => ({
       ...exercise,
       prompt: translatedValue(exercise.translations, language, exercise.prompt),
+      options: translatedArray(exercise.optionTranslations, language, exercise.options || []),
+      answer: translatedValue(exercise.answerTranslations, language, exercise.answer),
+      explanation: translatedValue(
+        exercise.explanationTranslations,
+        language,
+        exercise.explanation || ''
+      ),
     })) || [],
     contentLanguage: language,
   };
