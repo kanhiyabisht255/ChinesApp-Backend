@@ -9,6 +9,7 @@ import {
   localizeScenario,
 } from '../services/localization.service';
 import { hasActivePremium } from '../services/entitlement.service';
+import { normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
 
 const idOrSlugQuery = (value: string): Record<string, unknown> =>
   mongoose.isValidObjectId(value)
@@ -175,6 +176,13 @@ export const completeLesson = async (req: Request, res: Response): Promise<void>
   const progress = await Progress.findOne({ userId: authReq.userId });
   const alreadyCompleted = progress?.completedLessonIds?.includes(lessonKey) || false;
   const xpEarned = alreadyCompleted ? 0 : lesson.xpReward;
+  const timezoneOffset = normalizeTimezoneOffset(req.header('x-timezone-offset'));
+  const streak = await recordLearningActivity(authReq.userId, timezoneOffset);
+
+  if (streak === null) {
+    res.status(404).json({ success: false, message: 'User not found' });
+    return;
+  }
 
   if (xpEarned > 0) {
     await User.findByIdAndUpdate(authReq.userId, { $inc: { xp: xpEarned } });
@@ -195,7 +203,7 @@ export const completeLesson = async (req: Request, res: Response): Promise<void>
   res.json({
     success: true,
     message: alreadyCompleted ? 'Lesson was already completed' : 'Lesson completed',
-    data: { xpEarned, alreadyCompleted },
+    data: { xpEarned, alreadyCompleted, streak },
   });
 };
 

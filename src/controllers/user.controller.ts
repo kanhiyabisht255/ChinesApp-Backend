@@ -2,6 +2,11 @@ import { Request, Response } from 'express';
 import { User, Progress, CallSession, GemTransaction } from '../models';
 import type { AuthRequest } from '../types';
 import { normalizeLanguageCode } from '../services/localization.service';
+import {
+  normalizeTimezoneOffset,
+  recordLearningActivity,
+  visibleStreak,
+} from '../services/streak.service';
 
 export const getProfile = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
@@ -12,7 +17,14 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
     return;
   }
   
-  res.json({ success: true, data: user });
+  const timezoneOffset = normalizeTimezoneOffset(req.header('x-timezone-offset'));
+  res.json({
+    success: true,
+    data: {
+      ...user.toObject(),
+      streak: visibleStreak(user.streak, user.lastStreakDate, new Date(), timezoneOffset),
+    },
+  });
 };
 
 export const updateProfile = async (req: Request, res: Response): Promise<void> => {
@@ -159,39 +171,15 @@ export const addXp = async (req: Request, res: Response): Promise<void> => {
 
 export const updateStreak = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
-  
-  const user = await User.findById(authReq.userId);
-  if (!user) {
+  const timezoneOffset = normalizeTimezoneOffset(req.header('x-timezone-offset'));
+  const streak = await recordLearningActivity(authReq.userId, timezoneOffset);
+
+  if (streak === null) {
     res.status(404).json({ success: false, message: 'User not found' });
     return;
   }
-  
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
-  let newStreak = user.streak;
-  
-  if (user.lastStreakDate) {
-    const lastDate = new Date(user.lastStreakDate);
-    lastDate.setHours(0, 0, 0, 0);
-    
-    const diffDays = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 1) {
-      newStreak = user.streak + 1;
-    } else if (diffDays > 1) {
-      newStreak = 1;
-    }
-  } else {
-    newStreak = 1;
-  }
-  
-  await user.updateOne({
-    streak: newStreak,
-    lastStreakDate: today,
-  });
-  
-  res.json({ success: true, data: { streak: newStreak } });
+
+  res.json({ success: true, data: { streak } });
 };
 
 export const getGems = async (req: Request, res: Response): Promise<void> => {
