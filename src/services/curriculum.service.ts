@@ -22,7 +22,11 @@ export const syncCurriculum = async (options: SyncOptions = {}) => {
     ]);
   }
 
-  const courseOperations = ALL_COURSE_SEEDS.map(course => ({
+  const sortedCourseSeeds = [...ALL_COURSE_SEEDS]
+    .sort((a, b) => a.hskLevel - b.hskLevel || a.order - b.order)
+    .map((course, index) => ({ ...course, order: index + 1 }));
+
+  const courseOperations = sortedCourseSeeds.map(course => ({
       updateOne: {
         filter: { slug: course.slug },
         update: {
@@ -38,7 +42,7 @@ export const syncCurriculum = async (options: SyncOptions = {}) => {
   await Course.bulkWrite(courseOperations as never, { ordered: false });
 
   const storedCourses = await Course.find({
-    slug: { $in: ALL_COURSE_SEEDS.map(course => course.slug) },
+    slug: { $in: sortedCourseSeeds.map(course => course.slug) },
   }).select('_id slug');
   const courseIds = new Map(storedCourses.map(course => [course.slug, course._id.toString()]));
 
@@ -69,7 +73,7 @@ export const syncCurriculum = async (options: SyncOptions = {}) => {
   }, new Map<string, number>());
 
   await Course.bulkWrite(
-    ALL_COURSE_SEEDS.map(course => ({
+    sortedCourseSeeds.map(course => ({
       updateOne: {
         filter: { slug: course.slug },
         update: { $set: { totalLessons: lessonsByCourse.get(course.slug) || 0 } },
