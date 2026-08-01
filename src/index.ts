@@ -18,6 +18,7 @@ import courseRoutes from './routes/course.routes';
 import paymentRoutes from './routes/payment.routes';
 import configRoutes from './routes/config.routes';
 import adminRoutes from './routes/admin.routes';
+import toneRoutes from './routes/tone.routes';
 import { setupVoiceSocket } from './sockets/voice.socket';
 import { validateEnvironment } from './config/environment';
 
@@ -68,6 +69,7 @@ app.use('/api', courseRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api', configRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/tones', toneRoutes);
 
 app.get('/', (req, res) => {
   res.json({
@@ -81,6 +83,7 @@ app.get('/', (req, res) => {
       courses: '/api/courses',
       scenarios: '/api/scenarios',
       payment: '/api/payment',
+      tones: '/api/tones',
       health: '/api/health',
     },
   });
