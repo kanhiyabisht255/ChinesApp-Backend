@@ -1,8 +1,9 @@
-import { Course, Lesson, Scenario } from '../models';
+import { Course, Lesson, ReadingStory, Scenario } from '../models';
 import {
   ALL_COURSE_SEEDS,
   ALL_LESSON_SEEDS,
   ALL_SCENARIO_SEEDS,
+  ALL_READING_STORY_SEEDS,
   CURRICULUM_CATALOG_STATS,
   CURRICULUM_VERSION,
 } from '../content/catalog';
@@ -10,6 +11,30 @@ import { getVocabularyStats, syncVocabulary } from './vocabulary.service';
 
 type SyncOptions = {
   hideLegacy?: boolean;
+};
+
+export const syncReadingStories = async () => {
+  await ReadingStory.deleteMany({
+    source: 'packaged',
+    slug: { $nin: ALL_READING_STORY_SEEDS.map(story => story.slug) },
+  });
+
+  const operations = ALL_READING_STORY_SEEDS.map((story, index) => ({
+    updateOne: {
+      filter: { slug: story.slug },
+      update: {
+        $set: {
+          ...story,
+          order: index + 1,
+          source: 'packaged',
+          contentVersion: CURRICULUM_VERSION,
+        },
+      },
+      upsert: true,
+    },
+  }));
+  await ReadingStory.bulkWrite(operations as never, { ordered: false });
+  return { stories: ALL_READING_STORY_SEEDS.length };
 };
 
 export const syncCurriculum = async (options: SyncOptions = {}) => {
@@ -26,6 +51,10 @@ export const syncCurriculum = async (options: SyncOptions = {}) => {
       source: 'packaged',
       slug: { $nin: ALL_SCENARIO_SEEDS.map(scenario => scenario.slug) },
     }),
+    ReadingStory.deleteMany({
+      source: 'packaged',
+      slug: { $nin: ALL_READING_STORY_SEEDS.map(story => story.slug) },
+    }),
     Course.deleteMany({
       source: 'packaged',
       slug: { $nin: ALL_COURSE_SEEDS.map(course => course.slug) },
@@ -37,6 +66,7 @@ export const syncCurriculum = async (options: SyncOptions = {}) => {
       Course.updateMany({ source: { $ne: 'packaged' } }, { $set: { isPublished: false } }),
       Lesson.updateMany({ source: { $ne: 'packaged' } }, { $set: { isPublished: false } }),
       Scenario.updateMany({ source: { $ne: 'packaged' } }, { $set: { isPublished: false } }),
+      ReadingStory.updateMany({ source: { $ne: 'packaged' } }, { $set: { isPublished: false } }),
     ]);
   }
 
@@ -115,20 +145,24 @@ export const syncCurriculum = async (options: SyncOptions = {}) => {
     }));
   await Scenario.bulkWrite(scenarioOperations as never, { ordered: false });
 
+  await syncReadingStories();
+
   const vocabulary = await syncVocabulary();
 
   return { ...CURRICULUM_CATALOG_STATS, vocabulary };
 };
 
 export const getCurriculumStats = async () => {
-  const [courses, lessons, scenarios, publishedCourses, publishedLessons, publishedScenarios] =
+  const [courses, lessons, scenarios, readingStories, publishedCourses, publishedLessons, publishedScenarios, publishedReadingStories] =
     await Promise.all([
       Course.countDocuments({ source: 'packaged' }),
       Lesson.countDocuments({ source: 'packaged' }),
       Scenario.countDocuments({ source: 'packaged' }),
+      ReadingStory.countDocuments({ source: 'packaged' }),
       Course.countDocuments({ source: 'packaged', isPublished: true }),
       Lesson.countDocuments({ source: 'packaged', isPublished: true }),
       Scenario.countDocuments({ source: 'packaged', isPublished: true }),
+      ReadingStory.countDocuments({ source: 'packaged', isPublished: true }),
     ]);
 
   const vocabulary = await getVocabularyStats();
@@ -139,13 +173,16 @@ export const getCurriculumStats = async () => {
       courses,
       lessons,
       scenarios,
+      readingStories,
       publishedCourses,
       publishedLessons,
       publishedScenarios,
+      publishedReadingStories,
       isCurrent:
         courses === CURRICULUM_CATALOG_STATS.courses &&
         lessons === CURRICULUM_CATALOG_STATS.lessons &&
-        scenarios === CURRICULUM_CATALOG_STATS.scenarios,
+        scenarios === CURRICULUM_CATALOG_STATS.scenarios &&
+        readingStories === CURRICULUM_CATALOG_STATS.readingStories,
     },
   };
 };

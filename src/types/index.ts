@@ -287,6 +287,56 @@ export interface IDialogueItem {
   translations?: Map<string, string>;
 }
 
+export interface IReadingParagraph {
+  chinese: string;
+  pinyin: string;
+  english: string;
+  translations?: Map<string, string>;
+}
+
+export interface IReadingWord {
+  chinese: string;
+  pinyin: string;
+  english: string;
+  partOfSpeech?: string;
+  exampleChinese: string;
+  examplePinyin: string;
+  exampleEnglish: string;
+  translations?: Map<string, string>;
+}
+
+export interface IReadingQuestion {
+  prompt: string;
+  options: string[];
+  answer: string;
+  explanation: string;
+  translations?: Map<string, string>;
+}
+
+export interface IReadingStory {
+  _id: string;
+  slug: string;
+  title: string;
+  titleCn: string;
+  pinyin: string;
+  description: string;
+  category: string;
+  level: 'beginner' | 'elementary' | 'intermediate' | 'advanced';
+  icon: string;
+  color: string;
+  isPremium: boolean;
+  estimatedMinutes: number;
+  order: number;
+  paragraphs: IReadingParagraph[];
+  vocabulary: IReadingWord[];
+  questions: IReadingQuestion[];
+  isPublished: boolean;
+  source?: 'packaged' | 'admin';
+  contentVersion?: string;
+  translations?: Map<string, Map<string, string>>;
+  createdAt: Date;
+}
+
 export interface ISubscription {
   _id: string;
   userId: string;

@@ -21,9 +21,11 @@ import adminRoutes from './routes/admin.routes';
 import toneRoutes from './routes/tone.routes';
 import dictionaryRoutes from './routes/dictionary.routes';
 import vocabularyRoutes from './routes/vocabulary.routes';
+import readingRoutes from './routes/reading.routes';
 import { setupVoiceSocket } from './sockets/voice.socket';
 import { validateEnvironment } from './config/environment';
 import { syncVocabulary } from './services/vocabulary.service';
+import { syncReadingStories } from './services/curriculum.service';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -75,6 +77,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/tones', toneRoutes);
 app.use('/api/dictionary', dictionaryRoutes);
 app.use('/api/vocabulary', vocabularyRoutes);
+app.use('/api/reading', readingRoutes);
 
 app.get('/', (req, res) => {
   res.json({
@@ -87,6 +90,7 @@ app.get('/', (req, res) => {
       chat: '/api/ai/chat',
       courses: '/api/courses',
       scenarios: '/api/scenarios',
+      reading: '/api/reading/stories',
       payment: '/api/payment',
       tones: '/api/tones',
       dictionary: '/api/dictionary/lookup?q=中国',
@@ -109,6 +113,8 @@ const startServer = async (): Promise<void> => {
       const vocabulary = await syncVocabulary();
       console.log(`📖 Vocabulary ready: ${vocabulary.topics} topics, ${vocabulary.words} unique words`);
     }
+    const reading = await syncReadingStories();
+    console.log(`📚 Reading library ready: ${reading.stories} stories`);
     
     httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);

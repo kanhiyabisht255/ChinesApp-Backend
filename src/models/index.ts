@@ -10,6 +10,7 @@ interface IVocabularyTopicDoc extends Document, Omit<import('../types').IVocabul
 interface IVocabularyWordDoc extends Document, Omit<import('../types').IVocabularyWord, '_id'> {}
 interface IUserVocabularyProgressDoc extends Document, Omit<import('../types').IUserVocabularyProgress, '_id'> {}
 interface IScenarioDoc extends Document, Omit<import('../types').IScenario, '_id'> {}
+interface IReadingStoryDoc extends Document, Omit<import('../types').IReadingStory, '_id'> {}
 interface ISubscriptionDoc extends Document, Omit<import('../types').ISubscription, '_id'> {}
 interface IGemTransactionDoc extends Document, Omit<import('../types').IGemTransaction, '_id'> {}
 
@@ -281,6 +282,54 @@ const scenarioSchema = new Schema<IScenarioDoc>({
   translations: { type: Map, of: Map, default: {} },
 }, { timestamps: true });
 
+const readingParagraphSchema = new Schema({
+  chinese: { type: String, required: true },
+  pinyin: { type: String, required: true },
+  english: { type: String, required: true },
+  translations: { type: Map, of: String, default: {} },
+}, { _id: false });
+
+const readingWordSchema = new Schema({
+  chinese: { type: String, required: true },
+  pinyin: { type: String, required: true },
+  english: { type: String, required: true },
+  partOfSpeech: { type: String, default: '' },
+  exampleChinese: { type: String, required: true },
+  examplePinyin: { type: String, required: true },
+  exampleEnglish: { type: String, required: true },
+  translations: { type: Map, of: String, default: {} },
+}, { _id: false });
+
+const readingQuestionSchema = new Schema({
+  prompt: { type: String, required: true },
+  options: [{ type: String }],
+  answer: { type: String, required: true },
+  explanation: { type: String, required: true },
+  translations: { type: Map, of: String, default: {} },
+}, { _id: false });
+
+const readingStorySchema = new Schema<IReadingStoryDoc>({
+  slug: { type: String, required: true, unique: true, index: true },
+  title: { type: String, required: true },
+  titleCn: { type: String, required: true },
+  pinyin: { type: String, required: true },
+  description: { type: String, required: true },
+  category: { type: String, required: true, index: true },
+  level: { type: String, enum: ['beginner', 'elementary', 'intermediate', 'advanced'], required: true, index: true },
+  icon: { type: String, default: 'auto_stories' },
+  color: { type: String, default: '#7F43FE' },
+  isPremium: { type: Boolean, default: false },
+  estimatedMinutes: { type: Number, default: 5 },
+  order: { type: Number, default: 0, index: true },
+  paragraphs: [readingParagraphSchema],
+  vocabulary: [readingWordSchema],
+  questions: [readingQuestionSchema],
+  isPublished: { type: Boolean, default: true, index: true },
+  source: { type: String, enum: ['packaged', 'admin'], default: 'admin', index: true },
+  contentVersion: { type: String, default: '1' },
+  translations: { type: Map, of: Map, default: {} },
+}, { timestamps: true });
+
 const subscriptionSchema = new Schema<ISubscriptionDoc>({
   userId: { type: String, required: true, index: true },
   planId: { type: String, required: true },
@@ -334,6 +383,7 @@ export const UserVocabularyProgress = mongoose.model<IUserVocabularyProgressDoc>
   userVocabularyProgressSchema,
 );
 export const Scenario = mongoose.model<IScenarioDoc>('Scenario', scenarioSchema);
+export const ReadingStory = mongoose.model<IReadingStoryDoc>('ReadingStory', readingStorySchema);
 export const Subscription = mongoose.model<ISubscriptionDoc>('Subscription', subscriptionSchema);
 export const GemTransaction = mongoose.model<IGemTransactionDoc>('GemTransaction', gemTransactionSchema);
 export const AppSetting = mongoose.model('AppSetting', appSettingSchema);

@@ -208,3 +208,29 @@ export const localizeScenario = (scenario: unknown, language: string): Record<st
     contentLanguage: language,
   };
 };
+
+export const localizeReadingStory = (story: unknown, language: string): Record<string, any> => {
+  const plain = toPlainObject(story);
+  return {
+    ...plain,
+    title: translatedField(plain.translations, language, 'title', plain.title),
+    description: translatedField(plain.translations, language, 'description', plain.description),
+    paragraphs: (plain.paragraphs || []).map((paragraph: Record<string, any>, index: number) => ({
+      ...paragraph,
+      // Story-level translations let editors translate metadata without changing
+      // the Chinese text or pinyin. Paragraph-level values remain the fallback.
+      english: translatedField(plain.translations, language, `paragraph${index + 1}`, translatedValue(paragraph.translations, language, paragraph.english)),
+    })),
+    vocabulary: (plain.vocabulary || []).map((word: Record<string, any>, index: number) => ({
+      ...word,
+      english: translatedField(plain.translations, language, `word${index + 1}`, translatedValue(word.translations, language, word.english)),
+      exampleEnglish: translatedField(plain.translations, language, `word${index + 1}Example`, translatedValue(word.translations, language, word.exampleEnglish)),
+    })),
+    questions: (plain.questions || []).map((question: Record<string, any>, index: number) => ({
+      ...question,
+      prompt: translatedField(plain.translations, language, `question${index + 1}`, translatedValue(question.translations, language, question.prompt)),
+      explanation: translatedField(plain.translations, language, `question${index + 1}Explanation`, translatedValue(question.translations, language, question.explanation)),
+    })),
+    contentLanguage: language,
+  };
+};
