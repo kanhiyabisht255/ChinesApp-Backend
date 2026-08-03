@@ -129,14 +129,21 @@ export const getLesson = async (req: Request, res: Response): Promise<void> => {
 
 export const getSkillCollections = async (req: Request, res: Response): Promise<void> => {
   const skill = req.params.skill;
-  if (skill !== 'vocabulary' && skill !== 'grammar') {
-    res.status(400).json({ success: false, message: 'Skill must be vocabulary or grammar' });
+  if (skill === 'vocabulary') {
+    res.status(410).json({
+      success: false,
+      message: 'Vocabulary now uses dedicated topic content at /api/vocabulary/topics',
+    });
+    return;
+  }
+  if (skill !== 'grammar') {
+    res.status(400).json({ success: false, message: 'Skill must be grammar' });
     return;
   }
 
   const language = await getRequestLanguage(req);
   const premiumAccess = await hasPremiumAccess(req);
-  const lessonType = skill === 'vocabulary' ? 'vocabulary' : 'grammar';
+  const lessonType = 'grammar';
   const [courses, lessons] = await Promise.all([
     Course.find({ isPublished: true }).sort({ order: 1 }),
     Lesson.find({ isPublished: true, type: lessonType }).sort({ order: 1 }),
@@ -153,12 +160,10 @@ export const getSkillCollections = async (req: Request, res: Response): Promise<
 
     const localizedCourse = localizeCourse(course, language);
     const localizedLesson = localizeLesson(lesson, language);
-    const vocabulary = localizedLesson.vocab || [];
     const grammarPoints = localizedLesson.grammarPoints || [];
-    const preview = skill === 'vocabulary' ? vocabulary[0] : grammarPoints[0];
-    const localizedGrammarSentence = skill === 'grammar'
-      ? localizedLesson.sentences?.find((sentence: Record<string, any>) => sentence.chinese === preview?.example)
-      : undefined;
+    const preview = grammarPoints[0];
+    const localizedGrammarSentence = localizedLesson.sentences
+      ?.find((sentence: Record<string, any>) => sentence.chinese === preview?.example);
     const isLocked = lesson.isPremium && !premiumAccess;
 
     return [{
@@ -172,13 +177,11 @@ export const getSkillCollections = async (req: Request, res: Response): Promise<
       lessonTitle: localizedLesson.title,
       lessonTitleCn: lesson.titleCn,
       description: localizedLesson.description,
-      previewChinese: skill === 'vocabulary' ? preview?.chinese || '' : preview?.example || '',
-      previewPinyin: skill === 'vocabulary' ? preview?.pinyin || '' : preview?.examplePinyin || '',
-      previewTranslation: skill === 'vocabulary'
-        ? preview?.english || ''
-        : localizedGrammarSentence?.english || preview?.exampleTranslation || '',
-      explanation: skill === 'grammar' ? preview?.explanation || '' : '',
-      itemCount: skill === 'vocabulary' ? vocabulary.length : grammarPoints.length,
+      previewChinese: preview?.example || '',
+      previewPinyin: preview?.examplePinyin || '',
+      previewTranslation: localizedGrammarSentence?.english || preview?.exampleTranslation || '',
+      explanation: preview?.explanation || '',
+      itemCount: grammarPoints.length,
       estimatedMinutes: lesson.estimatedMinutes,
       isPremium: lesson.isPremium,
       isLocked,

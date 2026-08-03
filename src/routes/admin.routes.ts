@@ -23,6 +23,14 @@ import {
   createCourseLesson,
   updateCourseLesson,
   deleteCourseLesson,
+  getAllVocabularyTopics,
+  createVocabularyTopic,
+  updateVocabularyTopic,
+  deleteVocabularyTopic,
+  getVocabularyTopicWords,
+  createVocabularyWord,
+  updateVocabularyWord,
+  deleteVocabularyWord,
   getCurriculumStats,
   syncPackagedCurriculum,
   getAllScenarios,
@@ -65,6 +73,14 @@ router.get('/courses/:courseId/lessons', asyncHandler(getCourseLessons));
 router.post('/courses/:courseId/lessons', asyncHandler(createCourseLesson));
 router.put('/lessons/:id', asyncHandler(updateCourseLesson));
 router.delete('/lessons/:id', asyncHandler(deleteCourseLesson));
+router.get('/vocabulary/topics', asyncHandler(getAllVocabularyTopics));
+router.post('/vocabulary/topics', asyncHandler(createVocabularyTopic));
+router.put('/vocabulary/topics/:id', asyncHandler(updateVocabularyTopic));
+router.delete('/vocabulary/topics/:id', asyncHandler(deleteVocabularyTopic));
+router.get('/vocabulary/topics/:topicId/words', asyncHandler(getVocabularyTopicWords));
+router.post('/vocabulary/topics/:topicId/words', asyncHandler(createVocabularyWord));
+router.put('/vocabulary/words/:id', asyncHandler(updateVocabularyWord));
+router.delete('/vocabulary/words/:id', asyncHandler(deleteVocabularyWord));
 router.get('/curriculum/stats', asyncHandler(getCurriculumStats));
 router.post('/curriculum/sync', asyncHandler(syncPackagedCurriculum));
 

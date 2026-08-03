@@ -13,7 +13,7 @@ export const seedDatabase = async (): Promise<void> => {
   const stats = await syncCurriculum();
 
   await mongoose.disconnect();
-  console.log(`✅ Curriculum ready: ${stats.courses} courses, ${stats.lessons} lessons, ${stats.exercises} exercises, ${stats.scenarios} scenarios`);
+  console.log(`✅ Curriculum ready: ${stats.courses} courses, ${stats.lessons} lessons, ${stats.exercises} exercises, ${stats.scenarios} scenarios, ${stats.vocabulary.topics} vocabulary topics, ${stats.vocabulary.words} unique words`);
 };
 
 seedDatabase().catch(async (error) => {

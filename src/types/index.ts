@@ -200,6 +200,62 @@ export interface IVocabItem {
   translations?: Map<string, string>;
 }
 
+export interface IVocabularyTopic {
+  _id: string;
+  slug: string;
+  title: string;
+  titleCn: string;
+  pinyin: string;
+  description: string;
+  hskLevel: number;
+  level: 'starter' | 'beginner' | 'intermediate' | 'advanced';
+  icon: string;
+  color: string;
+  isPremium: boolean;
+  order: number;
+  isPublished: boolean;
+  source?: 'packaged' | 'admin';
+  contentVersion?: string;
+  translations?: Map<string, Map<string, string>>;
+  createdAt: Date;
+}
+
+export interface IVocabularyWord {
+  _id: string;
+  slug: string;
+  fingerprint: string;
+  topicId: string;
+  chinese: string;
+  pinyin: string;
+  english: string;
+  partOfSpeech: string;
+  classifier?: string;
+  usageNote?: string;
+  exampleChinese: string;
+  examplePinyin: string;
+  exampleEnglish: string;
+  translations?: Map<string, Map<string, string>>;
+  order: number;
+  isPremium: boolean;
+  isPublished: boolean;
+  source?: 'packaged' | 'admin';
+  contentVersion?: string;
+  createdAt: Date;
+}
+
+export interface IUserVocabularyProgress {
+  _id: string;
+  userId: string;
+  wordId: string;
+  isLearned: boolean;
+  isFavorite: boolean;
+  mastery: number;
+  reviewCount: number;
+  lastReviewedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface IScenario {
   _id: string;
   slug: string;

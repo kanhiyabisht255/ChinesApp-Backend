@@ -20,6 +20,7 @@ import configRoutes from './routes/config.routes';
 import adminRoutes from './routes/admin.routes';
 import toneRoutes from './routes/tone.routes';
 import dictionaryRoutes from './routes/dictionary.routes';
+import vocabularyRoutes from './routes/vocabulary.routes';
 import { setupVoiceSocket } from './sockets/voice.socket';
 import { validateEnvironment } from './config/environment';
 
@@ -72,6 +73,7 @@ app.use('/api', configRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/tones', toneRoutes);
 app.use('/api/dictionary', dictionaryRoutes);
+app.use('/api/vocabulary', vocabularyRoutes);
 
 app.get('/', (req, res) => {
   res.json({
@@ -87,6 +89,7 @@ app.get('/', (req, res) => {
       payment: '/api/payment',
       tones: '/api/tones',
       dictionary: '/api/dictionary/lookup?q=中国',
+      vocabulary: '/api/vocabulary/topics',
       health: '/api/health',
     },
   });

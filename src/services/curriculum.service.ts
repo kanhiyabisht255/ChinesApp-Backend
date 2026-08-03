@@ -6,6 +6,7 @@ import {
   CURRICULUM_CATALOG_STATS,
   CURRICULUM_VERSION,
 } from '../content/catalog';
+import { getVocabularyStats, syncVocabulary } from './vocabulary.service';
 
 type SyncOptions = {
   hideLegacy?: boolean;
@@ -114,7 +115,9 @@ export const syncCurriculum = async (options: SyncOptions = {}) => {
     }));
   await Scenario.bulkWrite(scenarioOperations as never, { ordered: false });
 
-  return CURRICULUM_CATALOG_STATS;
+  const vocabulary = await syncVocabulary();
+
+  return { ...CURRICULUM_CATALOG_STATS, vocabulary };
 };
 
 export const getCurriculumStats = async () => {
@@ -128,8 +131,10 @@ export const getCurriculumStats = async () => {
       Scenario.countDocuments({ source: 'packaged', isPublished: true }),
     ]);
 
+  const vocabulary = await getVocabularyStats();
   return {
     catalog: CURRICULUM_CATALOG_STATS,
+    vocabulary,
     database: {
       courses,
       lessons,

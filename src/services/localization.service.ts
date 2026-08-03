@@ -94,6 +94,32 @@ export const localizeCourse = (course: unknown, language: string): Record<string
   };
 };
 
+export const localizeVocabularyTopic = (topic: unknown, language: string): Record<string, any> => {
+  const plain = toPlainObject(topic);
+  return {
+    ...plain,
+    title: translatedField(plain.translations, language, 'title', plain.title),
+    description: translatedField(plain.translations, language, 'description', plain.description),
+    contentLanguage: language,
+  };
+};
+
+export const localizeVocabularyWord = (word: unknown, language: string): Record<string, any> => {
+  const plain = toPlainObject(word);
+  return {
+    ...plain,
+    english: translatedField(plain.translations, language, 'english', plain.english),
+    exampleEnglish: translatedField(
+      plain.translations,
+      language,
+      'exampleEnglish',
+      plain.exampleEnglish,
+    ),
+    usageNote: translatedField(plain.translations, language, 'usageNote', plain.usageNote || ''),
+    contentLanguage: language,
+  };
+};
+
 export const localizeLesson = (lesson: unknown, language: string): Record<string, any> => {
   const plain = toPlainObject(lesson);
   return {

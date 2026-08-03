@@ -7,6 +7,9 @@ import {
   CallSession,
   Course,
   Lesson,
+  VocabularyTopic,
+  VocabularyWord,
+  UserVocabularyProgress,
   Scenario,
   Subscription,
   GemTransaction,
@@ -387,6 +390,134 @@ export const deleteCourseLesson = async (req: Request, res: Response): Promise<v
   }
   await Course.findOneAndUpdate({ _id: lesson.courseId }, { $inc: { totalLessons: -1 } });
   res.json({ success: true, message: 'Lesson deleted' });
+};
+
+const vocabularyFingerprint = (chinese: string, pinyin: string): string =>
+  `${chinese}|${pinyin}`.toLowerCase().replace(/\s+/g, ' ').trim();
+
+export const getAllVocabularyTopics = async (_req: Request, res: Response): Promise<void> => {
+  const [topics, counts] = await Promise.all([
+    VocabularyTopic.find().sort({ hskLevel: 1, order: 1 }),
+    VocabularyWord.aggregate<{ _id: string; count: number }>([
+      { $group: { _id: '$topicId', count: { $sum: 1 } } },
+    ]),
+  ]);
+  const countByTopic = new Map(counts.map(item => [item._id, item.count]));
+  res.json({
+    success: true,
+    data: topics.map(topic => ({
+      ...topic.toObject({ flattenMaps: true }),
+      itemCount: countByTopic.get(topic._id.toString()) || 0,
+    })),
+  });
+};
+
+export const createVocabularyTopic = async (req: Request, res: Response): Promise<void> => {
+  let order = Number(req.body.order);
+  if (!order || order < 1) {
+    const last = await VocabularyTopic.findOne().sort({ order: -1 }).select('order');
+    order = (last?.order || 0) + 1;
+  }
+  const topic = await VocabularyTopic.create({
+    ...req.body,
+    order,
+    slug: req.body.slug || slugify(req.body.title || `vocabulary-topic-${Date.now()}`),
+    isPublished: req.body.isPublished ?? true,
+    source: req.body.source || 'admin',
+  });
+  res.status(201).json({ success: true, message: 'Vocabulary topic created', data: topic });
+};
+
+export const updateVocabularyTopic = async (req: Request, res: Response): Promise<void> => {
+  const updates = { ...req.body };
+  if (updates.title && !updates.slug) updates.slug = slugify(updates.title);
+  const topic = await VocabularyTopic.findOneAndUpdate(
+    idOrSlugQuery(req.params.id),
+    updates,
+    { new: true, runValidators: true },
+  );
+  if (!topic) {
+    res.status(404).json({ success: false, message: 'Vocabulary topic not found' });
+    return;
+  }
+  res.json({ success: true, message: 'Vocabulary topic updated', data: topic });
+};
+
+export const deleteVocabularyTopic = async (req: Request, res: Response): Promise<void> => {
+  const topic = await VocabularyTopic.findOneAndDelete(idOrSlugQuery(req.params.id));
+  if (!topic) {
+    res.status(404).json({ success: false, message: 'Vocabulary topic not found' });
+    return;
+  }
+  const wordIds = await VocabularyWord.find({ topicId: topic._id.toString() }).distinct('_id');
+  await Promise.all([
+    VocabularyWord.deleteMany({ topicId: topic._id.toString() }),
+    UserVocabularyProgress.deleteMany({ wordId: { $in: wordIds.map(String) } }),
+  ]);
+  res.json({ success: true, message: 'Vocabulary topic and its words deleted' });
+};
+
+export const getVocabularyTopicWords = async (req: Request, res: Response): Promise<void> => {
+  const topic = await VocabularyTopic.findOne(idOrSlugQuery(req.params.topicId)).select('_id');
+  if (!topic) {
+    res.status(404).json({ success: false, message: 'Vocabulary topic not found' });
+    return;
+  }
+  const words = await VocabularyWord.find({ topicId: topic._id.toString() }).sort({ order: 1 });
+  res.json({ success: true, data: words });
+};
+
+export const createVocabularyWord = async (req: Request, res: Response): Promise<void> => {
+  const topic = await VocabularyTopic.findOne(idOrSlugQuery(req.params.topicId));
+  if (!topic) {
+    res.status(404).json({ success: false, message: 'Vocabulary topic not found' });
+    return;
+  }
+  let order = Number(req.body.order);
+  if (!order || order < 1) {
+    const last = await VocabularyWord.findOne({ topicId: topic._id.toString() }).sort({ order: -1 }).select('order');
+    order = (last?.order || 0) + 1;
+  }
+  const pinyinSlug = slugify(req.body.pinyin || `word-${Date.now()}`);
+  const word = await VocabularyWord.create({
+    ...req.body,
+    topicId: topic._id.toString(),
+    order,
+    slug: req.body.slug || `${topic.slug}-${order}-${pinyinSlug}`,
+    fingerprint: vocabularyFingerprint(req.body.chinese || '', req.body.pinyin || ''),
+    isPremium: req.body.isPremium ?? topic.isPremium,
+    isPublished: req.body.isPublished ?? true,
+    source: req.body.source || 'admin',
+  });
+  res.status(201).json({ success: true, message: 'Unique vocabulary word created', data: word });
+};
+
+export const updateVocabularyWord = async (req: Request, res: Response): Promise<void> => {
+  const current = await VocabularyWord.findOne(idOrSlugQuery(req.params.id));
+  if (!current) {
+    res.status(404).json({ success: false, message: 'Vocabulary word not found' });
+    return;
+  }
+  const updates = { ...req.body };
+  const chinese = updates.chinese ?? current.chinese;
+  const pinyin = updates.pinyin ?? current.pinyin;
+  updates.fingerprint = vocabularyFingerprint(chinese, pinyin);
+  const word = await VocabularyWord.findByIdAndUpdate(
+    current._id,
+    updates,
+    { new: true, runValidators: true },
+  );
+  res.json({ success: true, message: 'Vocabulary word updated', data: word });
+};
+
+export const deleteVocabularyWord = async (req: Request, res: Response): Promise<void> => {
+  const word = await VocabularyWord.findOneAndDelete(idOrSlugQuery(req.params.id));
+  if (!word) {
+    res.status(404).json({ success: false, message: 'Vocabulary word not found' });
+    return;
+  }
+  await UserVocabularyProgress.deleteMany({ wordId: word._id.toString() });
+  res.json({ success: true, message: 'Vocabulary word deleted' });
 };
 
 export const getCurriculumStats = async (_req: Request, res: Response): Promise<void> => {

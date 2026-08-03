@@ -6,6 +6,9 @@ interface ICallSessionDoc extends Document, Omit<import('../types').ICallSession
 interface IChatMessageDoc extends Document, Omit<import('../types').IChatMessage, '_id'> {}
 interface ICourseDoc extends Document, Omit<import('../types').ICourse, '_id'> {}
 interface ILessonDoc extends Document, Omit<import('../types').ILesson, '_id'> {}
+interface IVocabularyTopicDoc extends Document, Omit<import('../types').IVocabularyTopic, '_id'> {}
+interface IVocabularyWordDoc extends Document, Omit<import('../types').IVocabularyWord, '_id'> {}
+interface IUserVocabularyProgressDoc extends Document, Omit<import('../types').IUserVocabularyProgress, '_id'> {}
 interface IScenarioDoc extends Document, Omit<import('../types').IScenario, '_id'> {}
 interface ISubscriptionDoc extends Document, Omit<import('../types').ISubscription, '_id'> {}
 interface IGemTransactionDoc extends Document, Omit<import('../types').IGemTransaction, '_id'> {}
@@ -201,6 +204,62 @@ const lessonSchema = new Schema<ILessonDoc>({
   translations: { type: Map, of: Map, default: {} },
 }, { timestamps: true });
 
+const vocabularyTopicSchema = new Schema<IVocabularyTopicDoc>({
+  slug: { type: String, required: true, unique: true, index: true },
+  title: { type: String, required: true },
+  titleCn: { type: String, required: true },
+  pinyin: { type: String, required: true },
+  description: { type: String, required: true },
+  hskLevel: { type: Number, required: true, min: 1, max: 6, index: true },
+  level: {
+    type: String,
+    enum: ['starter', 'beginner', 'intermediate', 'advanced'],
+    default: 'starter',
+  },
+  icon: { type: String, default: 'menu_book' },
+  color: { type: String, default: '#4A9FFF' },
+  isPremium: { type: Boolean, default: false },
+  order: { type: Number, default: 0, index: true },
+  isPublished: { type: Boolean, default: true, index: true },
+  source: { type: String, enum: ['packaged', 'admin'], default: 'admin', index: true },
+  contentVersion: { type: String, default: '1' },
+  translations: { type: Map, of: Map, default: {} },
+}, { timestamps: true });
+
+const vocabularyWordSchema = new Schema<IVocabularyWordDoc>({
+  slug: { type: String, required: true, unique: true, index: true },
+  // Prevents the same learning item from silently appearing in multiple topic packs.
+  fingerprint: { type: String, required: true, unique: true, index: true },
+  topicId: { type: String, required: true, index: true },
+  chinese: { type: String, required: true, trim: true },
+  pinyin: { type: String, required: true, trim: true },
+  english: { type: String, required: true, trim: true },
+  partOfSpeech: { type: String, default: '' },
+  classifier: { type: String, default: '' },
+  usageNote: { type: String, default: '' },
+  exampleChinese: { type: String, required: true },
+  examplePinyin: { type: String, required: true },
+  exampleEnglish: { type: String, required: true },
+  translations: { type: Map, of: Map, default: {} },
+  order: { type: Number, default: 0 },
+  isPremium: { type: Boolean, default: false },
+  isPublished: { type: Boolean, default: true, index: true },
+  source: { type: String, enum: ['packaged', 'admin'], default: 'admin', index: true },
+  contentVersion: { type: String, default: '1' },
+}, { timestamps: true });
+vocabularyWordSchema.index({ topicId: 1, order: 1 });
+
+const userVocabularyProgressSchema = new Schema<IUserVocabularyProgressDoc>({
+  userId: { type: String, required: true, index: true },
+  wordId: { type: String, required: true, index: true },
+  isLearned: { type: Boolean, default: false },
+  isFavorite: { type: Boolean, default: false },
+  mastery: { type: Number, default: 0, min: 0, max: 5 },
+  reviewCount: { type: Number, default: 0, min: 0 },
+  lastReviewedAt: { type: Date },
+}, { timestamps: true });
+userVocabularyProgressSchema.index({ userId: 1, wordId: 1 }, { unique: true });
+
 const scenarioSchema = new Schema<IScenarioDoc>({
   slug: { type: String, required: true, unique: true, index: true },
   title: { type: String, required: true },
@@ -268,6 +327,12 @@ export const CallSession = mongoose.model<ICallSessionDoc>('CallSession', callSe
 export const ChatMessage = mongoose.model<IChatMessageDoc>('ChatMessage', chatMessageSchema);
 export const Course = mongoose.model<ICourseDoc>('Course', courseSchema);
 export const Lesson = mongoose.model<ILessonDoc>('Lesson', lessonSchema);
+export const VocabularyTopic = mongoose.model<IVocabularyTopicDoc>('VocabularyTopic', vocabularyTopicSchema);
+export const VocabularyWord = mongoose.model<IVocabularyWordDoc>('VocabularyWord', vocabularyWordSchema);
+export const UserVocabularyProgress = mongoose.model<IUserVocabularyProgressDoc>(
+  'UserVocabularyProgress',
+  userVocabularyProgressSchema,
+);
 export const Scenario = mongoose.model<IScenarioDoc>('Scenario', scenarioSchema);
 export const Subscription = mongoose.model<ISubscriptionDoc>('Subscription', subscriptionSchema);
 export const GemTransaction = mongoose.model<IGemTransactionDoc>('GemTransaction', gemTransactionSchema);
