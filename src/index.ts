@@ -22,6 +22,7 @@ import toneRoutes from './routes/tone.routes';
 import dictionaryRoutes from './routes/dictionary.routes';
 import vocabularyRoutes from './routes/vocabulary.routes';
 import readingRoutes from './routes/reading.routes';
+import learningRoutes from './routes/learning.routes';
 import { setupVoiceSocket } from './sockets/voice.socket';
 import { validateEnvironment } from './config/environment';
 import { syncVocabulary } from './services/vocabulary.service';
@@ -78,6 +79,7 @@ app.use('/api/tones', toneRoutes);
 app.use('/api/dictionary', dictionaryRoutes);
 app.use('/api/vocabulary', vocabularyRoutes);
 app.use('/api/reading', readingRoutes);
+app.use('/api/learning', learningRoutes);
 
 app.get('/', (req, res) => {
   res.json({
@@ -91,6 +93,7 @@ app.get('/', (req, res) => {
       courses: '/api/courses',
       scenarios: '/api/scenarios',
       reading: '/api/reading/stories',
+      todayPlan: '/api/learning/today',
       payment: '/api/payment',
       tones: '/api/tones',
       dictionary: '/api/dictionary/lookup?q=中国',

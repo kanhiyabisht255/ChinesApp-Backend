@@ -18,6 +18,8 @@ export interface IUser {
   hskLevel: number;
   nativeLanguage: string;
   learningGoal?: 'general' | 'travel' | 'business' | 'hsk' | 'culture';
+  placementCompletedAt?: Date;
+  placementScore?: number;
   googleId?: string;
   isAdmin?: boolean;
   createdAt: Date;
@@ -252,6 +254,22 @@ export interface IUserVocabularyProgress {
   mastery: number;
   reviewCount: number;
   lastReviewedAt?: Date;
+  nextReviewAt?: Date;
+  intervalDays: number;
+  easeFactor: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IUserReadingProgress {
+  _id: string;
+  userId: string;
+  storyId: string;
+  isCompleted: boolean;
+  bestScore: number;
+  attempts: number;
+  lastReadAt?: Date;
+  completedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }

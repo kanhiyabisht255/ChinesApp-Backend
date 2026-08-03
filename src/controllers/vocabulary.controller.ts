@@ -1,9 +1,11 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
+import { randomUUID } from 'crypto';
 import {
   Progress,
   User,
   UserVocabularyProgress,
+  VocabularyReviewSession,
   VocabularyTopic,
   VocabularyWord,
 } from '../models';
@@ -14,6 +16,8 @@ import {
   localizeVocabularyTopic,
   localizeVocabularyWord,
 } from '../services/localization.service';
+import { nextVocabularyReview, type ReviewRating } from '../services/learning.service';
+import { localWeekdayIndex, localWeekKey, normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
 
 const idOrSlugQuery = (value: string): Record<string, unknown> =>
   mongoose.isValidObjectId(value)
@@ -135,6 +139,73 @@ export const getVocabularyWord = async (req: Request, res: Response): Promise<vo
   });
 };
 
+export const getVocabularyReviewQueue = async (req: Request, res: Response): Promise<void> => {
+  const userId = (req as AuthRequest).userId;
+  const language = await getRequestLanguage(req);
+  const limit = Math.max(3, Math.min(20, Math.round(Number(req.query.limit) || 10)));
+  const premiumAccess = await premiumAccessFor(req);
+  const now = new Date();
+  const dueProgress = await UserVocabularyProgress.find({
+    userId,
+    isLearned: true,
+    $or: [{ nextReviewAt: { $lte: now } }, { nextReviewAt: { $exists: false } }],
+  }).sort({ nextReviewAt: 1, lastReviewedAt: 1 }).limit(limit).lean();
+  const dueIds = dueProgress.map(item => item.wordId);
+  const dueWords = dueIds.length > 0
+    ? await VocabularyWord.find({
+        _id: { $in: dueIds },
+        isPublished: true,
+        ...(premiumAccess ? {} : { isPremium: false }),
+      })
+    : [];
+  const wordById = new Map(dueWords.map(word => [word._id.toString(), word]));
+  const orderedDueWords = dueIds.flatMap(id => wordById.get(id) ? [wordById.get(id)!] : []);
+  const dueProgressByWord = new Map(dueProgress.map(item => [item.wordId, item]));
+
+  const remaining = Math.max(0, limit - orderedDueWords.length);
+  const existingWordIds = remaining > 0
+    ? await UserVocabularyProgress.find({ userId }).distinct('wordId')
+    : [];
+  const newWords = remaining > 0
+    ? await VocabularyWord.find({
+        isPublished: true,
+        ...(premiumAccess ? {} : { isPremium: false }),
+        _id: { $nin: existingWordIds },
+      }).sort({ order: 1 }).limit(remaining)
+    : [];
+  const words = [...orderedDueWords, ...newWords];
+  const sessionId = randomUUID();
+  await VocabularyReviewSession.create({
+    sessionId,
+    userId,
+    wordIds: words.map(word => word._id.toString()),
+    expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+  });
+  const dueCount = await UserVocabularyProgress.countDocuments({
+    userId,
+    isLearned: true,
+    $or: [{ nextReviewAt: { $lte: now } }, { nextReviewAt: { $exists: false } }],
+  });
+
+  res.json({
+    success: true,
+    data: {
+      sessionId,
+      dueCount,
+      words: words.map(word => {
+        const itemProgress = dueProgressByWord.get(word._id.toString());
+        return {
+          ...localizeVocabularyWord(word, language),
+          isNew: !itemProgress,
+          mastery: Number(itemProgress?.mastery || 0),
+          reviewCount: Number(itemProgress?.reviewCount || 0),
+          nextReviewAt: itemProgress?.nextReviewAt,
+        };
+      }),
+    },
+  });
+};
+
 export const updateVocabularyProgress = async (req: Request, res: Response): Promise<void> => {
   const userId = (req as AuthRequest).userId;
   const word = await VocabularyWord.findOne({ ...idOrSlugQuery(req.params.id), isPublished: true });
@@ -148,12 +219,18 @@ export const updateVocabularyProgress = async (req: Request, res: Response): Pro
   }
 
   const existing = await UserVocabularyProgress.findOne({ userId, wordId: word._id.toString() });
-  const isLearned = typeof req.body.isLearned === 'boolean' ? req.body.isLearned : existing?.isLearned || false;
+  const rating = ['again', 'hard', 'good', 'easy'].includes(String(req.body.rating))
+    ? String(req.body.rating) as ReviewRating
+    : null;
+  const schedule = rating ? nextVocabularyReview(existing || {}, rating) : null;
+  const isLearned = rating
+    ? true
+    : typeof req.body.isLearned === 'boolean' ? req.body.isLearned : existing?.isLearned || false;
   const isFavorite = typeof req.body.isFavorite === 'boolean' ? req.body.isFavorite : existing?.isFavorite || false;
-  const mastery = Number.isFinite(Number(req.body.mastery))
+  const mastery = schedule?.mastery ?? (Number.isFinite(Number(req.body.mastery))
     ? Math.max(0, Math.min(5, Math.round(Number(req.body.mastery))))
-    : existing?.mastery || 0;
-  const reviewed = req.body.reviewed === true;
+    : existing?.mastery || 0);
+  const reviewed = rating !== null || req.body.reviewed === true;
 
   const progress = await UserVocabularyProgress.findOneAndUpdate(
     { userId, wordId: word._id.toString() },
@@ -162,6 +239,11 @@ export const updateVocabularyProgress = async (req: Request, res: Response): Pro
         isLearned,
         isFavorite,
         mastery,
+        ...(schedule ? {
+          nextReviewAt: schedule.nextReviewAt,
+          intervalDays: schedule.intervalDays,
+          easeFactor: schedule.easeFactor,
+        } : {}),
         ...(reviewed ? { lastReviewedAt: new Date() } : {}),
       },
       ...(reviewed ? { $inc: { reviewCount: 1 } } : {}),
@@ -194,4 +276,79 @@ export const updateVocabularyProgress = async (req: Request, res: Response): Pro
   }
 
   res.json({ success: true, message: 'Vocabulary progress saved', data: progress });
+};
+
+export const completeVocabularyReview = async (req: Request, res: Response): Promise<void> => {
+  const userId = (req as AuthRequest).userId;
+  const sessionId = String(req.body.sessionId || '');
+  const session = await VocabularyReviewSession.findOne({ sessionId, userId });
+  if (!session) {
+    res.status(404).json({ success: false, message: 'Review session not found or expired' });
+    return;
+  }
+  if (session.completedAt) {
+    res.status(409).json({ success: false, message: 'Review session was already completed' });
+    return;
+  }
+  const sessionCreatedAt = (session as unknown as { createdAt: Date }).createdAt;
+  const reviewedProgress = await UserVocabularyProgress.find({
+    userId,
+    wordId: { $in: session.wordIds },
+    lastReviewedAt: { $gte: sessionCreatedAt },
+  }).lean();
+  if (reviewedProgress.length === 0) {
+    res.status(400).json({ success: false, message: 'Review at least one word before finishing' });
+    return;
+  }
+  const claimed = await VocabularyReviewSession.findOneAndUpdate(
+    { _id: session._id, completedAt: { $exists: false } },
+    { $set: { completedAt: new Date() } },
+    { new: true },
+  );
+  if (!claimed) {
+    res.status(409).json({ success: false, message: 'Review session was already completed' });
+    return;
+  }
+
+  const reviewedCount = reviewedProgress.length;
+  const score = Math.round(reviewedProgress.reduce((sum, item) => sum + Number(item.mastery || 0) * 20, 0) / reviewedCount);
+  const xpEarned = Math.min(20, reviewedCount * 2);
+  const practiceMinutes = Math.max(1, Math.min(15, Math.round(Number(req.body.practiceMinutes) || Math.ceil(reviewedCount / 2))));
+  const timezoneOffset = normalizeTimezoneOffset(req.header('x-timezone-offset'));
+  const now = new Date();
+  const streak = await recordLearningActivity(userId, timezoneOffset, now, undefined, practiceMinutes);
+  if (streak === null) {
+    res.status(404).json({ success: false, message: 'User not found' });
+    return;
+  }
+  await User.findByIdAndUpdate(userId, { $inc: { xp: xpEarned } });
+
+  const current = await Progress.findOne({ userId }).lean();
+  const previousVocabulary = Number(current?.vocabulary || 0);
+  const vocabulary = previousVocabulary === 0 ? score : Math.round(previousVocabulary * 0.8 + score * 0.2);
+  const otherSkills = ['speaking', 'tones', 'grammar', 'listening', 'reading'] as const;
+  const overall = Math.round((vocabulary + otherSkills.reduce(
+    (sum, skill) => sum + Number(current?.[skill] || 0),
+    0,
+  )) / 6);
+  const weekKey = localWeekKey(now, timezoneOffset);
+  const weeklyXp = Array.from(
+    { length: 7 },
+    (_, index) => current?.weeklyXpWeek === weekKey ? Number(current?.weeklyXp?.[index] || 0) : 0,
+  );
+  weeklyXp[localWeekdayIndex(now, timezoneOffset)] += xpEarned;
+  await Progress.findOneAndUpdate(
+    { userId },
+    {
+      $set: { vocabulary, overall, weeklyXp, weeklyXpWeek: weekKey, lastUpdated: now },
+      $inc: { totalSessions: 1, totalMinutes: practiceMinutes },
+    },
+    { upsert: true, setDefaultsOnInsert: true },
+  );
+
+  res.json({
+    success: true,
+    message: 'Vocabulary review completed',
+    data: { reviewedCount, score, xpEarned, streak },
+  });
 };

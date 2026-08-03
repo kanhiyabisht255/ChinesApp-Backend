@@ -9,6 +9,7 @@ interface ILessonDoc extends Document, Omit<import('../types').ILesson, '_id'> {
 interface IVocabularyTopicDoc extends Document, Omit<import('../types').IVocabularyTopic, '_id'> {}
 interface IVocabularyWordDoc extends Document, Omit<import('../types').IVocabularyWord, '_id'> {}
 interface IUserVocabularyProgressDoc extends Document, Omit<import('../types').IUserVocabularyProgress, '_id'> {}
+interface IUserReadingProgressDoc extends Document, Omit<import('../types').IUserReadingProgress, '_id'> {}
 interface IScenarioDoc extends Document, Omit<import('../types').IScenario, '_id'> {}
 interface IReadingStoryDoc extends Document, Omit<import('../types').IReadingStory, '_id'> {}
 interface ISubscriptionDoc extends Document, Omit<import('../types').ISubscription, '_id'> {}
@@ -110,6 +111,8 @@ const userSchema = new Schema<IUserDoc>({
   hskLevel: { type: Number, default: 1 },
   nativeLanguage: { type: String, default: 'en' },
   learningGoal: { type: String, enum: ['general', 'travel', 'business', 'hsk', 'culture'], default: 'general' },
+  placementCompletedAt: { type: Date },
+  placementScore: { type: Number, min: 0, max: 100 },
   googleId: { type: String, sparse: true },
   isAdmin: { type: Boolean, default: false },
 }, { timestamps: true });
@@ -258,8 +261,31 @@ const userVocabularyProgressSchema = new Schema<IUserVocabularyProgressDoc>({
   mastery: { type: Number, default: 0, min: 0, max: 5 },
   reviewCount: { type: Number, default: 0, min: 0 },
   lastReviewedAt: { type: Date },
+  nextReviewAt: { type: Date, index: true },
+  intervalDays: { type: Number, default: 0, min: 0 },
+  easeFactor: { type: Number, default: 2.5, min: 1.3, max: 3.5 },
 }, { timestamps: true });
 userVocabularyProgressSchema.index({ userId: 1, wordId: 1 }, { unique: true });
+userVocabularyProgressSchema.index({ userId: 1, nextReviewAt: 1 });
+
+const userReadingProgressSchema = new Schema<IUserReadingProgressDoc>({
+  userId: { type: String, required: true, index: true },
+  storyId: { type: String, required: true, index: true },
+  isCompleted: { type: Boolean, default: false, index: true },
+  bestScore: { type: Number, default: 0, min: 0, max: 100 },
+  attempts: { type: Number, default: 0, min: 0 },
+  lastReadAt: { type: Date },
+  completedAt: { type: Date },
+}, { timestamps: true });
+userReadingProgressSchema.index({ userId: 1, storyId: 1 }, { unique: true });
+
+const vocabularyReviewSessionSchema = new Schema({
+  sessionId: { type: String, required: true, unique: true, index: true },
+  userId: { type: String, required: true, index: true },
+  wordIds: [{ type: String, required: true }],
+  completedAt: { type: Date },
+  expiresAt: { type: Date, required: true, expires: 0 },
+}, { timestamps: true });
 
 const scenarioSchema = new Schema<IScenarioDoc>({
   slug: { type: String, required: true, unique: true, index: true },
@@ -382,6 +408,11 @@ export const UserVocabularyProgress = mongoose.model<IUserVocabularyProgressDoc>
   'UserVocabularyProgress',
   userVocabularyProgressSchema,
 );
+export const UserReadingProgress = mongoose.model<IUserReadingProgressDoc>(
+  'UserReadingProgress',
+  userReadingProgressSchema,
+);
+export const VocabularyReviewSession = mongoose.model('VocabularyReviewSession', vocabularyReviewSessionSchema);
 export const Scenario = mongoose.model<IScenarioDoc>('Scenario', scenarioSchema);
 export const ReadingStory = mongoose.model<IReadingStoryDoc>('ReadingStory', readingStorySchema);
 export const Subscription = mongoose.model<ISubscriptionDoc>('Subscription', subscriptionSchema);
