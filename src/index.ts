@@ -23,6 +23,7 @@ import dictionaryRoutes from './routes/dictionary.routes';
 import vocabularyRoutes from './routes/vocabulary.routes';
 import { setupVoiceSocket } from './sockets/voice.socket';
 import { validateEnvironment } from './config/environment';
+import { syncVocabulary } from './services/vocabulary.service';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -104,6 +105,10 @@ const startServer = async (): Promise<void> => {
   try {
     validateEnvironment();
     await connectDB();
+    if (process.env.AUTO_SYNC_VOCABULARY !== 'false') {
+      const vocabulary = await syncVocabulary();
+      console.log(`📖 Vocabulary ready: ${vocabulary.topics} topics, ${vocabulary.words} unique words`);
+    }
     
     httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
