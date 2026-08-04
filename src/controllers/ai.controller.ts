@@ -9,9 +9,10 @@ import {
 import { randomUUID } from 'crypto';
 import mongoose from 'mongoose';
 import { User, Progress, CallSession, Scenario } from '../models';
-import type { AuthRequest } from '../types';
+import type { AuthRequest, ITranscriptItem } from '../types';
 import { consumeAiQuota, hasActivePremium, refundAiQuota } from '../services/entitlement.service';
 import { localWeekdayIndex, localWeekKey, normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
+import { buildVoiceCallContext, buildVoiceCallReport, type VoiceCallReport } from '../services/voice-session.service';
 
 const sendAIError = (res: Response, error: unknown, fallbackMessage: string): void => {
   if (error instanceof AIServiceError) {
@@ -45,6 +46,11 @@ const buildTutorOptions = async (userId?: string, scenarioId?: string) => {
       scenarioPrompt: scenario?.systemPrompt,
     },
   };
+};
+
+const activeVoiceCall = async (userId: string | undefined, sessionId: unknown) => {
+  if (!userId || typeof sessionId !== 'string' || !sessionId.startsWith('call_')) return null;
+  return CallSession.findOne({ userId, sessionId, status: 'started' });
 };
 
 export const startVoiceCall = async (req: Request, res: Response): Promise<void> => {
@@ -96,7 +102,15 @@ export const startVoiceCall = async (req: Request, res: Response): Promise<void>
         duration: 0,
         score: 0,
         feedback: 'Call in progress',
-        transcript: [],
+        transcript: [{
+          role: 'ai',
+          chinese: aiResponse.chinese,
+          pinyin: aiResponse.pinyin,
+          english: aiResponse.english,
+          correction: aiResponse.correction,
+          feedback: aiResponse.feedback,
+          timestamp: Date.now(),
+        }],
         expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
       });
 
@@ -135,7 +149,12 @@ export const processVoiceAudio = async (req: Request, res: Response): Promise<vo
   let quotaConsumed = false;
   let premiumUser = false;
   try {
-    const { expectedChinese, scenarioId } = req.body;
+    const { expectedChinese, scenarioId, sessionId } = req.body;
+    const activeCall = await activeVoiceCall(authReq.userId, sessionId);
+    if (sessionId && !activeCall) {
+      res.status(409).json({ success: false, message: 'Voice session is not active. Start a new call.' });
+      return;
+    }
     let contextMessages: string[] = [];
     if (typeof req.body.context === 'string') {
       try {
@@ -145,7 +164,11 @@ export const processVoiceAudio = async (req: Request, res: Response): Promise<vo
         contextMessages = [];
       }
     }
-    const tutor = await buildTutorOptions(authReq.userId, scenarioId);
+    const sessionScenarioId = activeCall?.scenarioId || scenarioId;
+    if (activeCall?.transcript?.length) {
+      contextMessages = buildVoiceCallContext(activeCall.transcript);
+    }
+    const tutor = await buildTutorOptions(authReq.userId, sessionScenarioId);
     premiumUser = hasActivePremium(tutor.user);
     const quota = await consumeAiQuota(authReq.userId, 'voiceTurns', premiumUser);
     if (!quota.allowed) {
@@ -169,6 +192,37 @@ export const processVoiceAudio = async (req: Request, res: Response): Promise<vo
     const pronunciation = expectedChinese
       ? analyzePronunciation(expectedChinese, spokenText)
       : undefined;
+    if (activeCall) {
+      await CallSession.updateOne(
+        { _id: activeCall._id, status: 'started' },
+        {
+          $push: {
+            transcript: {
+              $each: [
+                {
+                  role: 'user',
+                  chinese: spokenText,
+                  pinyin: '',
+                  english: '',
+                  pronunciationScore: pronunciation?.score,
+                  feedback: pronunciation?.feedback,
+                  timestamp: Date.now(),
+                },
+                {
+                  role: 'ai',
+                  chinese: aiResponse.chinese,
+                  pinyin: aiResponse.pinyin,
+                  english: aiResponse.english,
+                  correction: aiResponse.correction,
+                  feedback: aiResponse.feedback,
+                  timestamp: Date.now(),
+                },
+              ],
+            },
+          },
+        },
+      );
+    }
     
     res.json({
       success: true,
@@ -241,17 +295,68 @@ export const processVoiceText = async (req: Request, res: Response): Promise<voi
   }
 };
 
+export const processVoiceAction = async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const action = req.body.action;
+  const sessionId = req.body.sessionId;
+  if (!['hint', 'simpler'].includes(action)) {
+    res.status(400).json({ success: false, message: 'Tutor action must be hint or simpler' });
+    return;
+  }
+  const call = await activeVoiceCall(authReq.userId, sessionId);
+  if (!call) {
+    res.status(409).json({ success: false, message: 'Voice session is not active. Start a new call.' });
+    return;
+  }
+
+  let quotaConsumed = false;
+  let premiumUser = false;
+  try {
+    const tutor = await buildTutorOptions(authReq.userId, call.scenarioId);
+    premiumUser = hasActivePremium(tutor.user);
+    const quota = await consumeAiQuota(authReq.userId, 'voiceTurns', premiumUser);
+    if (!quota.allowed) {
+      res.status(429).json({ success: false, message: 'Daily free speaking-turn limit reached. Upgrade to Premium for unlimited AI practice.' });
+      return;
+    }
+    quotaConsumed = true;
+    const context = buildVoiceCallContext(call.transcript);
+    const prompt = action === 'hint'
+      ? 'Tutor control: Give the learner ONE short, natural Chinese sentence they can say next. Make it directly answer your latest question and fit their HSK level. This is a hint, not your next role-play turn.'
+      : 'Tutor control: Restate your latest question using much simpler Chinese while keeping the same meaning. Use shorter words and one short sentence.';
+    const aiResponse = await generateAIResponse(prompt, context, { ...tutor.options, isVoiceCall: true });
+    let audioBase64: string | undefined;
+    try {
+      audioBase64 = (await generateSpeech(aiResponse.chinese)).toString('base64');
+    } catch (ttsError) {
+      console.error('TTS unavailable for tutor action, returning text response:', ttsError);
+    }
+    res.json({
+      success: true,
+      data: { tutorAction: action, aiResponse, audioBase64, quota },
+    });
+  } catch (error) {
+    if (quotaConsumed) {
+      await refundAiQuota(authReq.userId, 'voiceTurns', premiumUser).catch(refundError => {
+        console.error('Failed to refund tutor-action quota:', refundError);
+      });
+    }
+    console.error('Tutor action error:', error);
+    sendAIError(res, error, 'Unable to provide tutor help');
+  }
+};
+
 export const endVoiceCall = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
-  const { sessionId, duration, score, feedback, transcript } = req.body;
+  const { sessionId, duration, score, transcript } = req.body;
   if (typeof sessionId !== 'string' || !sessionId.startsWith('call_')) {
     res.status(400).json({ success: false, message: 'Valid call session ID required' });
     return;
   }
   const clientDuration = Number.isFinite(Number(duration)) ? Math.max(0, Math.min(Number(duration), 7200)) : 0;
   const safeScore = Number.isFinite(Number(score)) ? Math.max(0, Math.min(Number(score), 100)) : 0;
-  const safeTranscript = Array.isArray(transcript)
-    ? transcript.slice(0, 100).map(item => ({
+  const safeTranscript: ITranscriptItem[] = Array.isArray(transcript)
+    ? transcript.slice(0, 100).map((item): ITranscriptItem => ({
         role: item?.role === 'user' ? 'user' : 'ai',
         chinese: String(item?.chinese || '').slice(0, 2000),
         pinyin: String(item?.pinyin || '').slice(0, 2000),
@@ -265,6 +370,7 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
   let xpEarned = 0;
   let streak: number | null = null;
   let todayMinutes = 0;
+  let callReport: VoiceCallReport = buildVoiceCallReport([], 0, safeScore);
   const timezoneOffset = normalizeTimezoneOffset(req.header('x-timezone-offset'));
   try {
     await dbSession.withTransaction(async () => {
@@ -277,8 +383,21 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
 
       const elapsedSeconds = Math.max(0, Math.floor((Date.now() - activeCall.createdAt.getTime()) / 1000));
       safeDuration = Math.min(clientDuration, elapsedSeconds + 10, 7200);
-      const hasLearnerTurn = safeTranscript.some(item => item.role === 'user');
+      const serverTranscript = activeCall.transcript?.length > 0
+        ? activeCall.transcript.map(item => ({
+            role: item.role,
+            chinese: item.chinese,
+            pinyin: item.pinyin,
+            english: item.english,
+            timestamp: item.timestamp,
+            correction: item.correction,
+            feedback: item.feedback,
+            pronunciationScore: item.pronunciationScore,
+          }))
+        : safeTranscript;
+      const hasLearnerTurn = serverTranscript.some(item => item.role === 'user');
       const hasMeaningfulPractice = hasLearnerTurn && safeDuration >= 20;
+      callReport = buildVoiceCallReport(serverTranscript, safeDuration, safeScore);
       xpEarned = hasMeaningfulPractice ? Math.min(50, Math.floor(safeDuration / 6)) : 0;
       const minutesEarned = hasMeaningfulPractice
         ? Math.max(1, Math.floor(safeDuration / 60))
@@ -289,11 +408,9 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
           $set: {
             status: 'completed',
             duration: safeDuration,
-            score: hasLearnerTurn ? safeScore : 0,
-            feedback: typeof feedback === 'string' && feedback.trim()
-              ? feedback.trim().slice(0, 2000)
-              : 'Conversation completed. Review the transcript and keep practicing.',
-            transcript: safeTranscript,
+            score: hasLearnerTurn ? callReport.score : 0,
+            feedback: callReport.feedback,
+            transcript: serverTranscript,
           },
           $unset: { expiresAt: 1 },
         },
@@ -326,9 +443,9 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
         const previousSpeaking = Number(currentProgress?.speaking || 0);
         const previousListening = Number(currentProgress?.listening || 0);
         const speaking = previousSpeaking === 0
-          ? Math.round(safeScore)
-          : Math.round(previousSpeaking * 0.75 + safeScore * 0.25);
-        const listeningSample = Math.min(100, safeScore + 5);
+          ? Math.round(callReport.score)
+          : Math.round(previousSpeaking * 0.75 + callReport.score * 0.25);
+        const listeningSample = Math.min(100, callReport.score + 5);
         const listening = previousListening === 0
           ? Math.round(listeningSample)
           : Math.round(previousListening * 0.85 + listeningSample * 0.15);
@@ -375,7 +492,7 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
   res.json({
     success: true,
     message: 'Call ended and progress saved',
-    data: { xpEarned, duration: safeDuration, streak, todayMinutes },
+    data: { xpEarned, duration: safeDuration, streak, todayMinutes, ...callReport },
   });
 };
 

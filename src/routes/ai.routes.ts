@@ -4,6 +4,7 @@ import {
   startVoiceCall,
   processVoiceAudio,
   processVoiceText,
+  processVoiceAction,
   endVoiceCall,
   getChatMessages,
   sendChatMessage,
@@ -38,6 +39,7 @@ const auth = asyncHandler(authMiddleware);
 router.post('/voice/start', auth, feature('voiceCallEnabled'), asyncHandler(startVoiceCall));
 router.post('/voice/audio', auth, feature('voiceCallEnabled'), upload.single('audio'), asyncHandler(processVoiceAudio));
 router.post('/voice/text', auth, feature('voiceCallEnabled'), asyncHandler(processVoiceText));
+router.post('/voice/action', auth, feature('voiceCallEnabled'), asyncHandler(processVoiceAction));
 router.post('/voice/end', auth, feature('voiceCallEnabled'), asyncHandler(endVoiceCall));
 
 router.get('/chat', auth, feature('chatEnabled'), asyncHandler(getChatMessages));

@@ -23,6 +23,9 @@ const transcriptItemSchema = new Schema({
   pinyin: { type: String, required: true },
   english: { type: String, required: true },
   timestamp: { type: Number, required: true },
+  correction: { type: String },
+  feedback: { type: String },
+  pronunciationScore: { type: Number, min: 0, max: 100 },
 }, { _id: false });
 
 const dialogueItemSchema = new Schema({

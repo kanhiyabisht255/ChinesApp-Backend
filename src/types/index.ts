@@ -80,6 +80,9 @@ export interface ITranscriptItem {
   pinyin: string;
   english: string;
   timestamp: number;
+  correction?: string;
+  feedback?: string;
+  pronunciationScore?: number;
 }
 
 export interface IChatMessage {
