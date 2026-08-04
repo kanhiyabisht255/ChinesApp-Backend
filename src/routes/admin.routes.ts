@@ -2,6 +2,11 @@ import { Router } from 'express';
 import { authMiddleware, adminMiddleware, rateLimitMiddleware } from '../middleware/auth';
 import { asyncHandler } from '../middleware/error';
 import {
+  generateAudioStory,
+  getGeneratedAudioStories,
+  updateGeneratedAudioStory,
+} from '../controllers/admin-story-audio.controller';
+import {
   adminLogin,
   getDashboardStats,
   getRevenueChart,
@@ -97,6 +102,10 @@ router.get('/listening', asyncHandler(getAllListeningLessons));
 router.post('/listening', asyncHandler(createListeningLesson));
 router.put('/listening/:id', asyncHandler(updateListeningLesson));
 router.delete('/listening/:id', asyncHandler(deleteListeningLesson));
+
+router.get('/audio-stories', asyncHandler(getGeneratedAudioStories));
+router.post('/audio-stories/generate', rateLimitMiddleware(5, 60_000), asyncHandler(generateAudioStory));
+router.patch('/audio-stories/:id', asyncHandler(updateGeneratedAudioStory));
 
 router.get('/config', asyncHandler(getConfig));
 router.put('/config', asyncHandler(updateConfig));

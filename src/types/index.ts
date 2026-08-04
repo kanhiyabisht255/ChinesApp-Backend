@@ -421,6 +421,13 @@ export interface IReadingStory {
   paragraphs: IReadingParagraph[];
   vocabulary: IReadingWord[];
   questions: IReadingQuestion[];
+  audioUrl?: string;
+  audioStorageProvider?: 'google-drive';
+  audioStorageId?: string;
+  audioProvider?: 'you.bot';
+  ttsModel?: string;
+  contentHash?: string;
+  generatedAt?: Date;
   isPublished: boolean;
   source?: 'packaged' | 'admin';
   contentVersion?: string;

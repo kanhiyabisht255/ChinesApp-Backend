@@ -645,6 +645,9 @@ const integrationFieldMap: Record<string, keyof IntegrationSecretUpdates> = {
   msg91SenderId: 'MSG91_SENDER_ID',
   razorpayKeyId: 'RAZORPAY_KEY_ID',
   razorpayKeySecret: 'RAZORPAY_KEY_SECRET',
+  youbotApiKey: 'YOUBOT_API_KEY',
+  googleDriveServiceAccountJson: 'GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON',
+  googleDriveFolderId: 'GOOGLE_DRIVE_FOLDER_ID',
 };
 
 const integrationStatusPayload = async () => {

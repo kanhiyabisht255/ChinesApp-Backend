@@ -11,7 +11,10 @@ type SecretName =
   | 'MSG91_TEMPLATE_ID'
   | 'MSG91_SENDER_ID'
   | 'RAZORPAY_KEY_ID'
-  | 'RAZORPAY_KEY_SECRET';
+  | 'RAZORPAY_KEY_SECRET'
+  | 'YOUBOT_API_KEY'
+  | 'GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON'
+  | 'GOOGLE_DRIVE_FOLDER_ID';
 
 export type IntegrationSecretUpdates = Partial<Record<SecretName, string | null>>;
 
@@ -110,6 +113,9 @@ export const getIntegrationSecretStatus = async () => {
     'MSG91_SENDER_ID',
     'RAZORPAY_KEY_ID',
     'RAZORPAY_KEY_SECRET',
+    'YOUBOT_API_KEY',
+    'GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON',
+    'GOOGLE_DRIVE_FOLDER_ID',
   ];
   const secrets = await loadSecrets();
   return Object.fromEntries(names.map(name => {
@@ -117,7 +123,9 @@ export const getIntegrationSecretStatus = async () => {
     return [name, {
       configured: Boolean(value),
       source: secrets[name] ? 'admin' : value ? 'railway' : 'missing',
-      hint: name === 'GOOGLE_PLAY_SERVICE_ACCOUNT_JSON' ? (value ? 'configured' : null) : mask(value),
+      hint: name === 'GOOGLE_PLAY_SERVICE_ACCOUNT_JSON' || name === 'GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON'
+        ? (value ? 'configured' : null)
+        : mask(value),
     }];
   }));
 };

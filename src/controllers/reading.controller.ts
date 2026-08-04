@@ -13,6 +13,7 @@ const idOrSlugQuery = (value: string): Record<string, unknown> =>
 
 const redactPremiumStory = (story: Record<string, any>): Record<string, any> => ({
   ...story,
+  audioUrl: null,
   paragraphs: [],
   vocabulary: [],
   questions: [],
