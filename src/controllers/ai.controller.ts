@@ -13,6 +13,7 @@ import type { AuthRequest, ITranscriptItem } from '../types';
 import { consumeAiQuota, hasActivePremium, refundAiQuota } from '../services/entitlement.service';
 import { localWeekdayIndex, localWeekKey, normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
 import { buildVoiceCallContext, buildVoiceCallReport, type VoiceCallReport } from '../services/voice-session.service';
+import { hasContentAccess } from '../services/reward.service';
 
 const sendAIError = (res: Response, error: unknown, fallbackMessage: string): void => {
   if (error instanceof AIServiceError) {
@@ -69,7 +70,12 @@ export const startVoiceCall = async (req: Request, res: Response): Promise<void>
       return;
     }
     const activePremium = hasActivePremium(user);
-    if (scenario?.isPremium && !activePremium) {
+    const scenarioAccess = !scenario?.isPremium || activePremium || await hasContentAccess(
+      authReq.userId,
+      'scenario',
+      scenario._id.toString(),
+    );
+    if (!scenarioAccess) {
       res.status(403).json({ success: false, message: 'Premium required for this scenario' });
       return;
     }

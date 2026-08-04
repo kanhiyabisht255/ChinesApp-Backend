@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import { ListeningLesson, Progress, User, UserListeningProgress } from '../models';
 import type { AuthRequest } from '../types';
 import { getRequestLanguage, localizeListeningLesson } from '../services/localization.service';
-import { hasActivePremium } from '../services/entitlement.service';
+import { contentAccess, hasContentAccess } from '../services/reward.service';
 import {
   localWeekdayIndex,
   localWeekKey,
@@ -15,13 +15,6 @@ const idOrSlugQuery = (value: string): Record<string, unknown> =>
   mongoose.isValidObjectId(value)
     ? { $or: [{ _id: value }, { slug: value }] }
     : { slug: value };
-
-const hasPremiumAccess = async (req: Request): Promise<boolean> => {
-  const userId = (req as AuthRequest).userId;
-  if (!userId) return false;
-  const user = await User.findById(userId).select('isPremium premiumExpiry').lean();
-  return Boolean(user && hasActivePremium(user));
-};
 
 const lockedLesson = (lesson: Record<string, any>): Record<string, any> => ({
   ...lesson,
@@ -40,7 +33,6 @@ const normalizeAnswer = (value: unknown): string => String(value ?? '')
 
 export const getListeningLessons = async (req: Request, res: Response): Promise<void> => {
   const language = await getRequestLanguage(req);
-  const premiumAccess = await hasPremiumAccess(req);
   const filter: Record<string, unknown> = { isPublished: true };
   const hskLevel = Number(req.query.hskLevel);
   if (Number.isInteger(hskLevel) && hskLevel >= 1 && hskLevel <= 6) filter.hskLevel = hskLevel;
@@ -53,6 +45,7 @@ export const getListeningLessons = async (req: Request, res: Response): Promise<
 
   const lessons = await ListeningLesson.find(filter).sort({ order: 1 });
   const userId = (req as AuthRequest).userId;
+  const access = await contentAccess(userId, 'listening', lessons.map(item => item._id.toString()));
   const progress = userId
     ? await UserListeningProgress.find({
         userId,
@@ -73,7 +66,8 @@ export const getListeningLessons = async (req: Request, res: Response): Promise<
         bestScore: Number(userProgress?.bestScore || 0),
         attempts: Number(userProgress?.attempts || 0),
       };
-      return item.isPremium && !premiumAccess ? lockedLesson(payload) : payload;
+      const unlocked = access.premium || access.unlockedIds.has(item._id.toString());
+      return item.isPremium && !unlocked ? lockedLesson(payload) : payload;
     }),
   });
 };
@@ -84,7 +78,7 @@ export const getListeningLesson = async (req: Request, res: Response): Promise<v
     res.status(404).json({ success: false, message: 'Listening lesson not found' });
     return;
   }
-  if (lesson.isPremium && !(await hasPremiumAccess(req))) {
+  if (lesson.isPremium && !(await hasContentAccess((req as AuthRequest).userId, 'listening', lesson._id.toString()))) {
     res.status(403).json({ success: false, message: 'Premium subscription required for this listening lesson' });
     return;
   }
@@ -112,7 +106,7 @@ export const completeListeningLesson = async (req: Request, res: Response): Prom
     res.status(404).json({ success: false, message: 'Listening lesson not found' });
     return;
   }
-  if (lesson.isPremium && !(await hasPremiumAccess(req))) {
+  if (lesson.isPremium && !(await hasContentAccess(authReq.userId, 'listening', lesson._id.toString()))) {
     res.status(403).json({ success: false, message: 'Premium subscription required for this listening lesson' });
     return;
   }

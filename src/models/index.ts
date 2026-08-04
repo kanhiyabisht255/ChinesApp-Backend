@@ -459,6 +459,19 @@ const aiUsageSchema = new Schema({
 }, { timestamps: true });
 aiUsageSchema.index({ userId: 1, date: 1 }, { unique: true });
 
+const rewardGrantSchema = new Schema({
+  rewardId: { type: String, required: true, unique: true, index: true },
+  userId: { type: String, required: true, index: true },
+  rewardType: { type: String, enum: ['content', 'voiceCall', 'voiceTurn'], required: true },
+  contentType: { type: String, enum: ['lesson', 'reading', 'listening', 'vocabulary', 'scenario'] },
+  contentId: { type: String, index: true },
+  status: { type: String, enum: ['pending', 'claimed'], default: 'pending', index: true },
+  grantAmount: { type: Number, default: 1, min: 1 },
+  claimedAt: { type: Date, index: true },
+  expiresAt: { type: Date, required: true, expires: 0 },
+}, { timestamps: true });
+rewardGrantSchema.index({ userId: 1, contentType: 1, contentId: 1, status: 1, expiresAt: 1 });
+
 const otpCodeSchema = new Schema({
   phone: { type: String, required: true, unique: true, index: true },
   otpHash: { type: String, required: true },
@@ -494,4 +507,5 @@ export const Subscription = mongoose.model<ISubscriptionDoc>('Subscription', sub
 export const GemTransaction = mongoose.model<IGemTransactionDoc>('GemTransaction', gemTransactionSchema);
 export const AppSetting = mongoose.model('AppSetting', appSettingSchema);
 export const AIUsage = mongoose.model('AIUsage', aiUsageSchema);
+export const RewardGrant = mongoose.model('RewardGrant', rewardGrantSchema);
 export const OTPCode = mongoose.model('OTPCode', otpCodeSchema);

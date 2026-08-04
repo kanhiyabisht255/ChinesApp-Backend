@@ -49,7 +49,7 @@ export const refundAiQuota = async (
 ): Promise<void> => {
   if (isPremium || !userId) return;
   await AIUsage.updateOne(
-    { userId, date: utcDateKey(), [type]: { $gt: 0 } },
+    { userId, date: utcDateKey() },
     { $inc: { [type]: -1 } }
   );
 };

@@ -11,6 +11,7 @@ import {
 } from '../models';
 import type { AuthRequest } from '../types';
 import { hasActivePremium } from '../services/entitlement.service';
+import { contentAccess, hasContentAccess } from '../services/reward.service';
 import {
   getRequestLanguage,
   localizeVocabularyTopic,
@@ -31,6 +32,18 @@ const premiumAccessFor = async (req: Request): Promise<boolean> => {
   return user ? hasActivePremium(user) : false;
 };
 
+const vocabularyWordAccessFor = async (
+  req: Request,
+  word: { isPremium?: boolean; topicId?: string },
+): Promise<boolean> => {
+  if (!word.isPremium) return true;
+  return hasContentAccess(
+    (req as AuthRequest).userId,
+    'vocabulary',
+    String(word.topicId || ''),
+  );
+};
+
 const progressFor = async (userId: string | undefined, wordIds: string[]) => {
   if (!userId || wordIds.length === 0) return new Map<string, Record<string, unknown>>();
   const progress = await UserVocabularyProgress.find({ userId, wordId: { $in: wordIds } }).lean();
@@ -40,11 +53,11 @@ const progressFor = async (userId: string | undefined, wordIds: string[]) => {
 export const getVocabularyTopics = async (req: Request, res: Response): Promise<void> => {
   const language = await getRequestLanguage(req);
   const userId = (req as AuthRequest).userId;
-  const [topics, words, premiumAccess] = await Promise.all([
+  const [topics, words] = await Promise.all([
     VocabularyTopic.find({ isPublished: true }).sort({ hskLevel: 1, order: 1 }),
     VocabularyWord.find({ isPublished: true }).sort({ topicId: 1, order: 1 }),
-    premiumAccessFor(req),
   ]);
+  const access = await contentAccess(userId, 'vocabulary', topics.map(topic => topic._id.toString()));
   const wordIds = words.map(word => word._id.toString());
   const progress = await progressFor(userId, wordIds);
   const wordsByTopic = new Map<string, typeof words>();
@@ -61,7 +74,7 @@ export const getVocabularyTopics = async (req: Request, res: Response): Promise<
       ...localized,
       itemCount: topicWords.length,
       learnedCount: topicWords.filter(word => progress.get(word._id.toString())?.isLearned === true).length,
-      isLocked: topic.isPremium && !premiumAccess,
+      isLocked: topic.isPremium && !access.premium && !access.unlockedIds.has(topic._id.toString()),
       previewWords: topicWords.slice(0, 3).map(word => {
         const localizedWord = localizeVocabularyWord(word, language);
         return {
@@ -84,8 +97,7 @@ export const getVocabularyTopic = async (req: Request, res: Response): Promise<v
     return;
   }
 
-  const premiumAccess = await premiumAccessFor(req);
-  if (topic.isPremium && !premiumAccess) {
+  if (topic.isPremium && !(await hasContentAccess((req as AuthRequest).userId, 'vocabulary', topic._id.toString()))) {
     res.status(403).json({ success: false, message: 'Premium subscription required for this vocabulary topic' });
     return;
   }
@@ -121,7 +133,7 @@ export const getVocabularyWord = async (req: Request, res: Response): Promise<vo
     res.status(404).json({ success: false, message: 'Vocabulary word not found' });
     return;
   }
-  if (word.isPremium && !(await premiumAccessFor(req))) {
+  if (!(await vocabularyWordAccessFor(req, word))) {
     res.status(403).json({ success: false, message: 'Premium subscription required for this vocabulary word' });
     return;
   }
@@ -213,7 +225,7 @@ export const updateVocabularyProgress = async (req: Request, res: Response): Pro
     res.status(404).json({ success: false, message: 'Vocabulary word not found' });
     return;
   }
-  if (word.isPremium && !(await premiumAccessFor(req))) {
+  if (!(await vocabularyWordAccessFor(req, word))) {
     res.status(403).json({ success: false, message: 'Premium subscription required for this vocabulary word' });
     return;
   }

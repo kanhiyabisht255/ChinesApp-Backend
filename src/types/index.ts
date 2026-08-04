@@ -28,6 +28,7 @@ export interface IUser {
 
 export type LearningLevel = 'starter' | 'beginner' | 'intermediate' | 'advanced' | 'fluent';
 export type AccessTier = 'free' | 'premium';
+export type RewardedContentType = 'lesson' | 'reading' | 'listening' | 'vocabulary' | 'scenario';
 export type LessonType =
   | 'pronunciation'
   | 'vocabulary'
@@ -511,5 +512,10 @@ export interface AppConfig {
     bannerAdUnitId: string;
     interstitialAdUnitId: string;
     rewardedAdUnitId: string;
+    maxRewardedAdsPerDay: number;
+    contentUnlockHours: number;
+    voiceCallsPerReward: number;
+    voiceTurnsPerReward: number;
+    rewardedContentTypes: RewardedContentType[];
   };
 }

@@ -6,6 +6,7 @@ import {
   ChatMessage,
   GemTransaction,
   Progress,
+  RewardGrant,
   Subscription,
   User,
 } from '../models';
@@ -408,6 +409,7 @@ export const deleteAccount = async (req: Request, res: Response): Promise<void> 
     Subscription.deleteMany({ userId }),
     GemTransaction.deleteMany({ userId }),
     AIUsage.deleteMany({ userId }),
+    RewardGrant.deleteMany({ userId }),
   ]);
   const deleted = await User.findByIdAndDelete(userId);
   if (!deleted) {

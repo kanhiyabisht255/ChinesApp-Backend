@@ -8,21 +8,13 @@ import {
   localizeLesson,
   localizeScenario,
 } from '../services/localization.service';
-import { hasActivePremium } from '../services/entitlement.service';
+import { contentAccess, hasContentAccess } from '../services/reward.service';
 import { localWeekdayIndex, localWeekKey, normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
 
 const idOrSlugQuery = (value: string): Record<string, unknown> =>
   mongoose.isValidObjectId(value)
     ? { $or: [{ _id: value }, { slug: value }] }
     : { slug: value };
-
-const hasPremiumAccess = async (req: Request): Promise<boolean> => {
-  const userId = (req as AuthRequest).userId;
-  if (!userId) return false;
-  const user = await User.findById(userId).select('isPremium premiumExpiry').lean();
-  if (!user) return false;
-  return hasActivePremium(user);
-};
 
 const redactPremiumLesson = (lesson: Record<string, any>): Record<string, any> => ({
   ...lesson,
@@ -99,12 +91,17 @@ export const getLessons = async (req: Request, res: Response): Promise<void> => 
   const course = await Course.findOne(idOrSlugQuery(courseId)).select('_id');
   const resolvedCourseId = course?._id.toString() || courseId;
   const lessons = await Lesson.find({ courseId: resolvedCourseId, isPublished: true }).sort({ order: 1 });
-  const premiumAccess = await hasPremiumAccess(req);
+  const access = await contentAccess(
+    (req as AuthRequest).userId,
+    'lesson',
+    lessons.map(lesson => lesson._id.toString()),
+  );
   res.json({
     success: true,
     data: lessons.map(lesson => {
       const localized = localizeLesson(lesson, language);
-      return lesson.isPremium && !premiumAccess ? redactPremiumLesson(localized) : localized;
+      const unlocked = access.premium || access.unlockedIds.has(lesson._id.toString());
+      return lesson.isPremium && !unlocked ? redactPremiumLesson(localized) : { ...localized, isLocked: false };
     }),
   });
 };
@@ -119,7 +116,7 @@ export const getLesson = async (req: Request, res: Response): Promise<void> => {
     return;
   }
   
-  if (lesson.isPremium && !(await hasPremiumAccess(req))) {
+  if (lesson.isPremium && !(await hasContentAccess((req as AuthRequest).userId, 'lesson', lesson._id.toString()))) {
     res.status(403).json({ success: false, message: 'Premium subscription required for this lesson' });
     return;
   }
@@ -142,12 +139,16 @@ export const getSkillCollections = async (req: Request, res: Response): Promise<
   }
 
   const language = await getRequestLanguage(req);
-  const premiumAccess = await hasPremiumAccess(req);
   const lessonType = 'grammar';
   const [courses, lessons] = await Promise.all([
     Course.find({ isPublished: true }).sort({ order: 1 }),
     Lesson.find({ isPublished: true, type: lessonType }).sort({ order: 1 }),
   ]);
+  const access = await contentAccess(
+    (req as AuthRequest).userId,
+    'lesson',
+    lessons.map(lesson => lesson._id.toString()),
+  );
 
   const lessonByCourse = new Map<string, (typeof lessons)[number]>();
   lessons.forEach(lesson => {
@@ -164,7 +165,7 @@ export const getSkillCollections = async (req: Request, res: Response): Promise<
     const preview = grammarPoints[0];
     const localizedGrammarSentence = localizedLesson.sentences
       ?.find((sentence: Record<string, any>) => sentence.chinese === preview?.example);
-    const isLocked = lesson.isPremium && !premiumAccess;
+    const isLocked = lesson.isPremium && !access.premium && !access.unlockedIds.has(lesson._id.toString());
 
     return [{
       id: `${course.slug}-${skill}`,
@@ -203,7 +204,7 @@ export const completeLesson = async (req: Request, res: Response): Promise<void>
     return;
   }
 
-  if (lesson.isPremium && !(await hasPremiumAccess(req))) {
+  if (lesson.isPremium && !(await hasContentAccess(authReq.userId, 'lesson', lesson._id.toString()))) {
     res.status(403).json({ success: false, message: 'Premium subscription required for this lesson' });
     return;
   }
@@ -303,12 +304,17 @@ export const completeLesson = async (req: Request, res: Response): Promise<void>
 export const getScenarios = async (req: Request, res: Response): Promise<void> => {
   const language = await getRequestLanguage(req);
   const scenarios = await Scenario.find({ isPublished: true }).sort({ order: 1 });
-  const premiumAccess = await hasPremiumAccess(req);
+  const access = await contentAccess(
+    (req as AuthRequest).userId,
+    'scenario',
+    scenarios.map(scenario => scenario._id.toString()),
+  );
   res.json({
     success: true,
     data: scenarios.map(scenario => {
       const localized = localizeScenario(scenario, language);
-      return scenario.isPremium && !premiumAccess ? redactPremiumScenario(localized) : localized;
+      const unlocked = access.premium || access.unlockedIds.has(scenario._id.toString());
+      return scenario.isPremium && !unlocked ? redactPremiumScenario(localized) : { ...localized, isLocked: false };
     }),
   });
 };
@@ -323,7 +329,7 @@ export const getScenario = async (req: Request, res: Response): Promise<void> =>
     return;
   }
   
-  if (scenario.isPremium && !(await hasPremiumAccess(req))) {
+  if (scenario.isPremium && !(await hasContentAccess((req as AuthRequest).userId, 'scenario', scenario._id.toString()))) {
     res.status(403).json({ success: false, message: 'Premium subscription required for this scenario' });
     return;
   }

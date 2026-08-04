@@ -3,20 +3,13 @@ import mongoose from 'mongoose';
 import { Progress, ReadingStory, User, UserReadingProgress } from '../models';
 import type { AuthRequest } from '../types';
 import { getRequestLanguage, localizeReadingStory } from '../services/localization.service';
-import { hasActivePremium } from '../services/entitlement.service';
+import { contentAccess, hasContentAccess } from '../services/reward.service';
 import { localWeekdayIndex, localWeekKey, normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
 
 const idOrSlugQuery = (value: string): Record<string, unknown> =>
   mongoose.isValidObjectId(value)
     ? { $or: [{ _id: value }, { slug: value }] }
     : { slug: value };
-
-const hasPremiumAccess = async (req: Request): Promise<boolean> => {
-  const userId = (req as AuthRequest).userId;
-  if (!userId) return false;
-  const user = await User.findById(userId).select('isPremium premiumExpiry').lean();
-  return Boolean(user && hasActivePremium(user));
-};
 
 const redactPremiumStory = (story: Record<string, any>): Record<string, any> => ({
   ...story,
@@ -28,7 +21,6 @@ const redactPremiumStory = (story: Record<string, any>): Record<string, any> => 
 
 export const getReadingStories = async (req: Request, res: Response): Promise<void> => {
   const language = await getRequestLanguage(req);
-  const premiumAccess = await hasPremiumAccess(req);
   const filter: Record<string, unknown> = { isPublished: true };
   if (typeof req.query.level === 'string' && ['beginner', 'elementary', 'intermediate', 'advanced'].includes(req.query.level)) {
     filter.level = req.query.level;
@@ -39,6 +31,7 @@ export const getReadingStories = async (req: Request, res: Response): Promise<vo
 
   const stories = await ReadingStory.find(filter).sort({ order: 1 });
   const userId = (req as AuthRequest).userId;
+  const access = await contentAccess(userId, 'reading', stories.map(story => story._id.toString()));
   const readingProgress = userId
     ? await UserReadingProgress.find({
         userId,
@@ -57,7 +50,8 @@ export const getReadingStories = async (req: Request, res: Response): Promise<vo
         isCompleted: userProgress?.isCompleted === true,
         bestScore: Number(userProgress?.bestScore || 0),
       };
-      return story.isPremium && !premiumAccess ? redactPremiumStory(withProgress) : withProgress;
+      const unlocked = access.premium || access.unlockedIds.has(story._id.toString());
+      return story.isPremium && !unlocked ? redactPremiumStory(withProgress) : withProgress;
     }),
   });
 };
@@ -69,7 +63,7 @@ export const getReadingStory = async (req: Request, res: Response): Promise<void
     res.status(404).json({ success: false, message: 'Reading story not found' });
     return;
   }
-  if (story.isPremium && !(await hasPremiumAccess(req))) {
+  if (story.isPremium && !(await hasContentAccess((req as AuthRequest).userId, 'reading', story._id.toString()))) {
     res.status(403).json({ success: false, message: 'Premium subscription required for this reading story' });
     return;
   }
@@ -95,7 +89,7 @@ export const completeReadingStory = async (req: Request, res: Response): Promise
     res.status(404).json({ success: false, message: 'Reading story not found' });
     return;
   }
-  if (story.isPremium && !(await hasPremiumAccess(req))) {
+  if (story.isPremium && !(await hasContentAccess(authReq.userId, 'reading', story._id.toString()))) {
     res.status(403).json({ success: false, message: 'Premium subscription required for this reading story' });
     return;
   }

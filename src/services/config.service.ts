@@ -42,6 +42,11 @@ const DEFAULT_CONFIG: AppConfig = {
     bannerAdUnitId: '',
     interstitialAdUnitId: '',
     rewardedAdUnitId: '',
+    maxRewardedAdsPerDay: 3,
+    contentUnlockHours: 24,
+    voiceCallsPerReward: 1,
+    voiceTurnsPerReward: 2,
+    rewardedContentTypes: ['lesson', 'reading', 'listening', 'vocabulary'],
   },
 };
 
@@ -115,6 +120,14 @@ export const updateLocalConfig = async (updates: Partial<AppConfig>): Promise<Ap
       bannerAdUnitId: String(merged.ads.bannerAdUnitId || '').trim().slice(0, 200),
       interstitialAdUnitId: String(merged.ads.interstitialAdUnitId || '').trim().slice(0, 200),
       rewardedAdUnitId: String(merged.ads.rewardedAdUnitId || '').trim().slice(0, 200),
+      maxRewardedAdsPerDay: Math.max(0, Math.min(Math.round(Number(merged.ads.maxRewardedAdsPerDay) || 0), 20)),
+      contentUnlockHours: Math.max(1, Math.min(Math.round(Number(merged.ads.contentUnlockHours) || current.ads.contentUnlockHours), 168)),
+      voiceCallsPerReward: Math.max(1, Math.min(Math.round(Number(merged.ads.voiceCallsPerReward) || current.ads.voiceCallsPerReward), 5)),
+      voiceTurnsPerReward: Math.max(1, Math.min(Math.round(Number(merged.ads.voiceTurnsPerReward) || current.ads.voiceTurnsPerReward), 20)),
+      rewardedContentTypes: [...new Set(
+        (Array.isArray(merged.ads.rewardedContentTypes) ? merged.ads.rewardedContentTypes : current.ads.rewardedContentTypes)
+          .filter(type => ['lesson', 'reading', 'listening', 'vocabulary', 'scenario'].includes(type)),
+      )] as AppConfig['ads']['rewardedContentTypes'],
     },
   };
   await AppSetting.findOneAndUpdate(

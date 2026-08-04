@@ -24,6 +24,7 @@ import vocabularyRoutes from './routes/vocabulary.routes';
 import readingRoutes from './routes/reading.routes';
 import learningRoutes from './routes/learning.routes';
 import listeningRoutes from './routes/listening.routes';
+import rewardRoutes from './routes/reward.routes';
 import { setupVoiceSocket } from './sockets/voice.socket';
 import { validateEnvironment } from './config/environment';
 import { syncVocabulary } from './services/vocabulary.service';
@@ -82,6 +83,7 @@ app.use('/api/vocabulary', vocabularyRoutes);
 app.use('/api/reading', readingRoutes);
 app.use('/api/learning', learningRoutes);
 app.use('/api/listening', listeningRoutes);
+app.use('/api/rewards', rewardRoutes);
 
 app.get('/', (req, res) => {
   res.json({
