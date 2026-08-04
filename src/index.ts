@@ -113,23 +113,30 @@ app.use(errorHandler);
 
 setupVoiceSocket(io);
 
+const syncContentLibraries = async (): Promise<void> => {
+  if (process.env.AUTO_SYNC_VOCABULARY !== 'false') {
+    const vocabulary = await syncVocabulary();
+    console.log(`📖 Vocabulary ready: ${vocabulary.topics} topics, ${vocabulary.words} unique words`);
+  }
+  const reading = await syncReadingStories();
+  console.log(`📚 Reading library ready: ${reading.stories} stories`);
+  const listening = await syncListeningLessons();
+  console.log(`🎧 Listening library ready: ${listening.listeningLessons} lessons`);
+};
+
 const startServer = async (): Promise<void> => {
   try {
     validateEnvironment();
     await connectDB();
-    if (process.env.AUTO_SYNC_VOCABULARY !== 'false') {
-      const vocabulary = await syncVocabulary();
-      console.log(`📖 Vocabulary ready: ${vocabulary.topics} topics, ${vocabulary.words} unique words`);
-    }
-    const reading = await syncReadingStories();
-    console.log(`📚 Reading library ready: ${reading.stories} stories`);
-    const listening = await syncListeningLessons();
-    console.log(`🎧 Listening library ready: ${listening.listeningLessons} lessons`);
-    
+
     httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📚 API Documentation: http://localhost:${PORT}`);
       console.log(`💚 Health Check: http://localhost:${PORT}/api/health`);
+    });
+
+    void syncContentLibraries().catch(error => {
+      console.error('Content library sync failed:', error);
     });
   } catch (error) {
     console.error('Failed to start server:', error);
