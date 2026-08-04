@@ -274,6 +274,75 @@ export interface IUserReadingProgress {
   updatedAt: Date;
 }
 
+export interface IUserListeningProgress {
+  _id: string;
+  userId: string;
+  lessonId: string;
+  isCompleted: boolean;
+  bestScore: number;
+  attempts: number;
+  totalListens: number;
+  lastListenedAt?: Date;
+  completedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IListeningSegment {
+  speaker: 'narrator' | 'speakerA' | 'speakerB';
+  speakerName: string;
+  chinese: string;
+  pinyin: string;
+  english: string;
+  translations?: Map<string, string>;
+}
+
+export interface IListeningFocusWord {
+  chinese: string;
+  pinyin: string;
+  english: string;
+  translations?: Map<string, string>;
+}
+
+export interface IListeningQuestion {
+  type: 'gist' | 'detail' | 'dictation' | 'sequence';
+  prompt: string;
+  options: string[];
+  answer: string;
+  explanation: string;
+  replaySegmentIndex?: number;
+  translations?: Map<string, string>;
+  optionTranslations?: Map<string, string[]>;
+  explanationTranslations?: Map<string, string>;
+}
+
+export interface IListeningLesson {
+  _id: string;
+  slug: string;
+  title: string;
+  titleCn: string;
+  pinyin: string;
+  description: string;
+  category: string;
+  level: 'beginner' | 'elementary' | 'intermediate' | 'advanced';
+  hskLevel: number;
+  icon: string;
+  color: string;
+  isPremium: boolean;
+  estimatedMinutes: number;
+  xpReward: number;
+  order: number;
+  preListenTip: string;
+  segments: IListeningSegment[];
+  focusWords: IListeningFocusWord[];
+  questions: IListeningQuestion[];
+  isPublished: boolean;
+  source?: 'packaged' | 'admin';
+  contentVersion?: string;
+  translations?: Map<string, Map<string, string>>;
+  createdAt: Date;
+}
+
 export interface IScenario {
   _id: string;
   slug: string;

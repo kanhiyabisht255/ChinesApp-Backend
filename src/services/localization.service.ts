@@ -234,3 +234,32 @@ export const localizeReadingStory = (story: unknown, language: string): Record<s
     contentLanguage: language,
   };
 };
+
+export const localizeListeningLesson = (lesson: unknown, language: string): Record<string, any> => {
+  const plain = toPlainObject(lesson);
+  return {
+    ...plain,
+    title: translatedField(plain.translations, language, 'title', plain.title),
+    description: translatedField(plain.translations, language, 'description', plain.description),
+    preListenTip: translatedField(plain.translations, language, 'preListenTip', plain.preListenTip),
+    segments: (plain.segments || []).map((segment: Record<string, any>) => ({
+      ...segment,
+      english: translatedValue(segment.translations, language, segment.english),
+    })),
+    focusWords: (plain.focusWords || []).map((word: Record<string, any>) => ({
+      ...word,
+      english: translatedValue(word.translations, language, word.english),
+    })),
+    questions: (plain.questions || []).map((question: Record<string, any>) => ({
+      ...question,
+      prompt: translatedValue(question.translations, language, question.prompt),
+      options: translatedArray(question.optionTranslations, language, question.options || []),
+      explanation: translatedValue(
+        question.explanationTranslations,
+        language,
+        question.explanation,
+      ),
+    })),
+    contentLanguage: language,
+  };
+};

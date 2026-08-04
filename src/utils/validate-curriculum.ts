@@ -2,6 +2,7 @@ import {
   ALL_COURSE_SEEDS,
   ALL_LESSON_SEEDS,
   ALL_SCENARIO_SEEDS,
+  ALL_LISTENING_LESSON_SEEDS,
   CURRICULUM_CATALOG_STATS,
 } from '../content/catalog';
 
@@ -40,10 +41,12 @@ const rejectDuplicates = <T>(
 const courses = ALL_COURSE_SEEDS as any[];
 const lessons = ALL_LESSON_SEEDS as any[];
 const scenarios = ALL_SCENARIO_SEEDS as any[];
+const listeningLessons = ALL_LISTENING_LESSON_SEEDS as any[];
 
 if (courses.length !== 150) fail('catalog.course-count', `Expected 150, found ${courses.length}`);
 if (lessons.length !== 600) fail('catalog.lesson-count', `Expected 600, found ${lessons.length}`);
 if (scenarios.length < 30) fail('catalog.scenario-count', `Expected at least 30, found ${scenarios.length}`);
+if (listeningLessons.length < 18) fail('catalog.listening-count', `Expected at least 18, found ${listeningLessons.length}`);
 if (courses.filter(course => !course.isPremium).length < 8) {
   fail('catalog.free-course-count', 'Expected at least 8 complete free courses');
 }
@@ -52,6 +55,7 @@ rejectDuplicates('course.duplicate-slug', courses, course => course.slug, course
 rejectDuplicates('course.duplicate-order', courses, course => String(course.order), course => course.slug);
 rejectDuplicates('lesson.duplicate-slug', lessons, lesson => lesson.slug, lesson => lesson.title);
 rejectDuplicates('scenario.duplicate-slug', scenarios, scenario => scenario.slug, scenario => scenario.title);
+rejectDuplicates('listening.duplicate-slug', listeningLessons, item => item.slug, item => item.title);
 
 const courseSlugs = new Set(courses.map(course => course.slug));
 const lessonsByCourse = new Map<string, any[]>();
@@ -193,6 +197,45 @@ for (const scenario of scenarios) {
   }
 }
 
+const listeningScriptUses = new Map<string, string>();
+for (const item of listeningLessons) {
+  if (!Array.isArray(item.segments) || item.segments.length < 3) {
+    fail('listening.segment-depth', `${item.slug} has ${item.segments?.length || 0} segments`);
+  }
+  if (!Array.isArray(item.focusWords) || item.focusWords.length < 3) {
+    fail('listening.focus-word-depth', `${item.slug} has ${item.focusWords?.length || 0} focus words`);
+  }
+  if (!Array.isArray(item.questions) || item.questions.length < 3) {
+    fail('listening.question-depth', `${item.slug} has ${item.questions?.length || 0} questions`);
+  }
+  const questionKeys = new Set<string>();
+  for (const segment of item.segments || []) {
+    if (!segment.chinese || !segment.pinyin || !segment.english || !segment.speakerName) {
+      fail('listening.invalid-segment', `${item.slug}: ${JSON.stringify(segment)}`);
+    }
+    const scriptKey = normalize(segment.chinese || '');
+    const previous = listeningScriptUses.get(scriptKey);
+    if (previous) fail('listening.duplicate-script', `${previous}, ${item.slug}: ${segment.chinese}`);
+    else listeningScriptUses.set(scriptKey, item.slug);
+  }
+  for (const question of item.questions || []) {
+    if (!question.prompt || !question.answer || !question.explanation) {
+      fail('listening.invalid-question', `${item.slug}: ${JSON.stringify(question)}`);
+    }
+    if (question.type !== 'dictation' && (!Array.isArray(question.options) || question.options.length < 2)) {
+      fail('listening.question-options', `${item.slug}: ${question.prompt}`);
+    }
+    if (question.replaySegmentIndex !== undefined && (
+      question.replaySegmentIndex < 0 || question.replaySegmentIndex >= (item.segments || []).length
+    )) {
+      fail('listening.invalid-replay-index', `${item.slug}: ${question.replaySegmentIndex}`);
+    }
+    const key = `${normalize(question.prompt)}|${normalize(question.answer)}`;
+    if (questionKeys.has(key)) fail('listening.duplicate-question', `${item.slug}: ${question.prompt}`);
+    questionKeys.add(key);
+  }
+}
+
 for (const lesson of lessons) {
   for (const item of lesson.vocab || []) {
     if (!/[\u3400-\u9fff]/u.test(item.chinese || '')) {
@@ -207,6 +250,7 @@ console.log(JSON.stringify({
   courses: courses.length,
   lessons: lessons.length,
   scenarios: scenarios.length,
+  listeningLessons: listeningLessons.length,
   exercises: lessons.reduce((total, lesson) => total + (lesson.exercises?.length || 0), 0),
   uniqueSentenceTexts: sentenceUses.size,
   errors: errors.length,

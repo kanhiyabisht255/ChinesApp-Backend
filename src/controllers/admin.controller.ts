@@ -7,9 +7,11 @@ import {
   CallSession,
   Course,
   Lesson,
+  ListeningLesson,
   VocabularyTopic,
   VocabularyWord,
   UserVocabularyProgress,
+  UserListeningProgress,
   Scenario,
   Subscription,
   GemTransaction,
@@ -77,7 +79,7 @@ export const adminLogin = async (req: Request, res: Response): Promise<void> => 
 };
 
 export const getDashboardStats = async (req: Request, res: Response): Promise<void> => {
-  const [totalUsers, premiumUsers, totalRevenue, totalCalls, totalCourses, totalScenarios] =
+  const [totalUsers, premiumUsers, totalRevenue, totalCalls, totalCourses, totalScenarios, totalListeningLessons] =
     await Promise.all([
       User.countDocuments(),
       User.countDocuments({ isPremium: true }),
@@ -88,6 +90,7 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
       CallSession.countDocuments({ status: { $ne: 'started' } }),
       Course.countDocuments(),
       Scenario.countDocuments(),
+      ListeningLesson.countDocuments(),
     ]);
 
   const sevenDaysAgo = new Date();
@@ -104,6 +107,7 @@ export const getDashboardStats = async (req: Request, res: Response): Promise<vo
       totalCalls,
       totalCourses,
       totalScenarios,
+      totalListeningLessons,
       newUsersThisWeek,
       conversionRate: totalUsers > 0 ? ((premiumUsers / totalUsers) * 100).toFixed(2) : 0,
     },
@@ -573,6 +577,52 @@ export const deleteScenario = async (req: Request, res: Response): Promise<void>
     return;
   }
   res.json({ success: true, message: 'Scenario deleted' });
+};
+
+export const getAllListeningLessons = async (_req: Request, res: Response): Promise<void> => {
+  const lessons = await ListeningLesson.find().sort({ hskLevel: 1, order: 1 });
+  res.json({ success: true, data: lessons });
+};
+
+export const createListeningLesson = async (req: Request, res: Response): Promise<void> => {
+  let order = Number(req.body.order);
+  if (!order || order < 1) {
+    const last = await ListeningLesson.findOne().sort({ order: -1 }).select('order');
+    order = (last?.order || 0) + 1;
+  }
+  const listeningLesson = await ListeningLesson.create({
+    ...req.body,
+    order,
+    slug: req.body.slug || slugify(req.body.title || `listening-${Date.now()}`),
+    isPublished: req.body.isPublished ?? true,
+    source: req.body.source || 'admin',
+  });
+  res.status(201).json({ success: true, message: 'Listening lesson created', data: listeningLesson });
+};
+
+export const updateListeningLesson = async (req: Request, res: Response): Promise<void> => {
+  const updates = { ...req.body };
+  if (updates.title && !updates.slug) updates.slug = slugify(updates.title);
+  const listeningLesson = await ListeningLesson.findOneAndUpdate(
+    idOrSlugQuery(req.params.id),
+    updates,
+    { new: true, runValidators: true },
+  );
+  if (!listeningLesson) {
+    res.status(404).json({ success: false, message: 'Listening lesson not found' });
+    return;
+  }
+  res.json({ success: true, message: 'Listening lesson updated', data: listeningLesson });
+};
+
+export const deleteListeningLesson = async (req: Request, res: Response): Promise<void> => {
+  const listeningLesson = await ListeningLesson.findOneAndDelete(idOrSlugQuery(req.params.id));
+  if (!listeningLesson) {
+    res.status(404).json({ success: false, message: 'Listening lesson not found' });
+    return;
+  }
+  await UserListeningProgress.deleteMany({ lessonId: listeningLesson._id.toString() });
+  res.json({ success: true, message: 'Listening lesson and learner progress deleted' });
 };
 
 export const getConfig = async (req: Request, res: Response): Promise<void> => {

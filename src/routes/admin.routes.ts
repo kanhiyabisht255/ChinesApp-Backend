@@ -37,6 +37,10 @@ import {
   createScenario,
   updateScenario,
   deleteScenario,
+  getAllListeningLessons,
+  createListeningLesson,
+  updateListeningLesson,
+  deleteListeningLesson,
   getConfig,
   updateConfig,
   getIntegrations,
@@ -88,6 +92,11 @@ router.get('/scenarios', asyncHandler(getAllScenarios));
 router.post('/scenarios', asyncHandler(createScenario));
 router.put('/scenarios/:id', asyncHandler(updateScenario));
 router.delete('/scenarios/:id', asyncHandler(deleteScenario));
+
+router.get('/listening', asyncHandler(getAllListeningLessons));
+router.post('/listening', asyncHandler(createListeningLesson));
+router.put('/listening/:id', asyncHandler(updateListeningLesson));
+router.delete('/listening/:id', asyncHandler(deleteListeningLesson));
 
 router.get('/config', asyncHandler(getConfig));
 router.put('/config', asyncHandler(updateConfig));

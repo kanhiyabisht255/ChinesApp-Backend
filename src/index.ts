@@ -23,10 +23,11 @@ import dictionaryRoutes from './routes/dictionary.routes';
 import vocabularyRoutes from './routes/vocabulary.routes';
 import readingRoutes from './routes/reading.routes';
 import learningRoutes from './routes/learning.routes';
+import listeningRoutes from './routes/listening.routes';
 import { setupVoiceSocket } from './sockets/voice.socket';
 import { validateEnvironment } from './config/environment';
 import { syncVocabulary } from './services/vocabulary.service';
-import { syncReadingStories } from './services/curriculum.service';
+import { syncListeningLessons, syncReadingStories } from './services/curriculum.service';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -80,6 +81,7 @@ app.use('/api/dictionary', dictionaryRoutes);
 app.use('/api/vocabulary', vocabularyRoutes);
 app.use('/api/reading', readingRoutes);
 app.use('/api/learning', learningRoutes);
+app.use('/api/listening', listeningRoutes);
 
 app.get('/', (req, res) => {
   res.json({
@@ -93,6 +95,7 @@ app.get('/', (req, res) => {
       courses: '/api/courses',
       scenarios: '/api/scenarios',
       reading: '/api/reading/stories',
+      listening: '/api/listening/lessons',
       todayPlan: '/api/learning/today',
       payment: '/api/payment',
       tones: '/api/tones',
@@ -118,6 +121,8 @@ const startServer = async (): Promise<void> => {
     }
     const reading = await syncReadingStories();
     console.log(`📚 Reading library ready: ${reading.stories} stories`);
+    const listening = await syncListeningLessons();
+    console.log(`🎧 Listening library ready: ${listening.listeningLessons} lessons`);
     
     httpServer.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);

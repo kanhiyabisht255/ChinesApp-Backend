@@ -2,11 +2,13 @@ import { Request, Response } from 'express';
 import {
   Course,
   Lesson,
+  ListeningLesson,
   Progress,
   ReadingStory,
   Scenario,
   User,
   UserReadingProgress,
+  UserListeningProgress,
   UserVocabularyProgress,
   VocabularyWord,
 } from '../models';
@@ -17,6 +19,7 @@ import {
   getRequestLanguage,
   localizeCourse,
   localizeLesson,
+  localizeListeningLesson,
   localizeReadingStory,
   localizeScenario,
 } from '../services/localization.service';
@@ -197,6 +200,24 @@ export const getTodayPlan = async (req: Request, res: Response): Promise<void> =
   }).sort({ order: 1 });
   const readingStory = readingStories.find(story => !completedStoryIds.has(story._id.toString())) || readingStories[0];
 
+  const completedListening = await UserListeningProgress.find({
+    userId: authReq.userId,
+    isCompleted: true,
+  }).select('lessonId').lean();
+  const completedListeningIds = new Set(completedListening.map(item => item.lessonId));
+  const listeningLessons = await ListeningLesson.find({
+    isPublished: true,
+    hskLevel: { $lte: Math.max(1, user.hskLevel) },
+    level: { $in: readingLevelsFor(user.hskLevel) },
+    ...(premiumAccess ? {} : { isPremium: false }),
+  }).sort({ order: 1 });
+  const goalListening = goalMatcher
+    ? listeningLessons.find(item => goalMatcher.test(`${item.category} ${item.title} ${item.description}`))
+    : undefined;
+  const listeningLesson = goalListening
+    || listeningLessons.find(item => !completedListeningIds.has(item._id.toString()))
+    || listeningLessons[0];
+
   const scenarios = await Scenario.find({
     isPublished: true,
     difficulty: { $in: scenarioLevelsFor(user.hskLevel) },
@@ -234,6 +255,21 @@ export const getTodayPlan = async (req: Request, res: Response): Promise<void> =
       estimatedMinutes: Math.max(3, Math.min(8, dueReviewCount)),
       xpReward: Math.min(20, dueReviewCount * 2),
       isCompleted: false,
+      isLocked: false,
+    });
+  }
+  if (listeningLesson) {
+    const listening = localizeListeningLesson(listeningLesson, language);
+    tasks.push({
+      id: `listening-${listeningLesson._id}`,
+      type: 'listening',
+      contentId: listeningLesson._id.toString(),
+      title: listening.title,
+      subtitle: `HSK ${listeningLesson.hskLevel} · Guided listening practice`,
+      chinese: listeningLesson.titleCn,
+      estimatedMinutes: listeningLesson.estimatedMinutes,
+      xpReward: listeningLesson.xpReward,
+      isCompleted: completedListeningIds.has(listeningLesson._id.toString()),
       isLocked: false,
     });
   }
