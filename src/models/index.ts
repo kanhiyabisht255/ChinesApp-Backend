@@ -100,9 +100,11 @@ const grammarPointSchema = new Schema({
 }, { _id: false });
 
 const userSchema = new Schema<IUserDoc>({
-  phone: { type: String, required: true, unique: true, sparse: true },
+  phone: { type: String, unique: true, sparse: true },
   name: { type: String, required: true, default: 'Learner' },
-  email: { type: String, sparse: true },
+  email: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
+  emailVerified: { type: Boolean, default: false, index: true },
+  passwordHash: { type: String, select: false },
   avatar: { type: String },
   isPremium: { type: Boolean, default: false },
   premiumExpiry: { type: Date },
@@ -479,8 +481,8 @@ const rewardGrantSchema = new Schema({
 }, { timestamps: true });
 rewardGrantSchema.index({ userId: 1, contentType: 1, contentId: 1, status: 1, expiresAt: 1 });
 
-const otpCodeSchema = new Schema({
-  phone: { type: String, required: true, unique: true, index: true },
+const emailVerificationCodeSchema = new Schema({
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
   otpHash: { type: String, required: true },
   attempts: { type: Number, default: 0 },
   expiresAt: { type: Date, required: true, expires: 0 },
@@ -515,4 +517,4 @@ export const GemTransaction = mongoose.model<IGemTransactionDoc>('GemTransaction
 export const AppSetting = mongoose.model('AppSetting', appSettingSchema);
 export const AIUsage = mongoose.model('AIUsage', aiUsageSchema);
 export const RewardGrant = mongoose.model('RewardGrant', rewardGrantSchema);
-export const OTPCode = mongoose.model('OTPCode', otpCodeSchema);
+export const EmailVerificationCode = mongoose.model('EmailVerificationCode', emailVerificationCodeSchema);

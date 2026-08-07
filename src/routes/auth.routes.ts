@@ -1,20 +1,22 @@
 import { Router } from 'express';
 import {
-  sendOTP,
-  verifyOTPAndLogin,
+  registerWithEmail,
+  resendEmailVerification,
+  verifyEmailAndLogin,
+  loginWithEmail,
   googleAuth,
-  guestLogin,
   getMe,
 } from '../controllers/auth.controller';
-import { optionalAuthMiddleware, rateLimitMiddleware } from '../middleware/auth';
+import { authMiddleware, rateLimitMiddleware } from '../middleware/auth';
 import { asyncHandler } from '../middleware/error';
 
 const router = Router();
 
-router.post('/send-otp', rateLimitMiddleware(5, 10 * 60_000), asyncHandler(sendOTP));
-router.post('/verify-otp', rateLimitMiddleware(10, 10 * 60_000), asyncHandler(verifyOTPAndLogin));
+router.post('/email/register', rateLimitMiddleware(5, 10 * 60_000), asyncHandler(registerWithEmail));
+router.post('/email/resend', rateLimitMiddleware(5, 10 * 60_000), asyncHandler(resendEmailVerification));
+router.post('/email/verify', rateLimitMiddleware(10, 10 * 60_000), asyncHandler(verifyEmailAndLogin));
+router.post('/email/login', rateLimitMiddleware(10, 10 * 60_000), asyncHandler(loginWithEmail));
 router.post('/google', rateLimitMiddleware(10, 10 * 60_000), asyncHandler(googleAuth));
-router.post('/guest', rateLimitMiddleware(10, 60 * 60_000), asyncHandler(guestLogin));
-router.get('/me', asyncHandler(optionalAuthMiddleware), asyncHandler(getMe));
+router.get('/me', asyncHandler(authMiddleware), asyncHandler(getMe));
 
 export default router;

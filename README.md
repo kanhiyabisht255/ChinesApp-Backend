@@ -8,7 +8,7 @@ Backend API for ChinesApp - Chinese Learning Application
 - **MongoDB + Mongoose**
 - **Socket.io** for real-time features
 - **OpenAI** for multilingual AI tutoring, transcription and AI-generated speech
-- **MSG91** for OTP
+- **Resend** for email verification codes
 - **Razorpay/Stripe** for payments
 - **MongoDB app settings** for feature flags, AI models and pricing
 
@@ -46,7 +46,7 @@ src/
 ├── types/
 │   └── index.ts             # TypeScript types
 ├── utils/
-│   ├── otp.ts               # OTP generation & MSG91
+│   ├── otp.ts               # Legacy phone normalization helper
 │   ├── jwt.ts               # JWT utilities
 │   └── seed.ts              # Database seeding
 └── index.ts                 # App entry point
@@ -57,11 +57,12 @@ src/
 ### Auth
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/auth/send-otp` | Send OTP via MSG91 |
-| POST | `/api/auth/verify-otp` | Verify OTP & login |
+| POST | `/api/auth/email/register` | Register with email/password and send verification code |
+| POST | `/api/auth/email/resend` | Resend email verification code |
+| POST | `/api/auth/email/verify` | Verify email code and login |
+| POST | `/api/auth/email/login` | Login with verified email/password |
 | POST | `/api/auth/google` | Google Sign-In |
-| POST | `/api/auth/guest` | Guest login |
-| GET | `/api/auth/me` | Get current user |
+| GET | `/api/auth/me` | Get current authenticated user |
 
 ### User
 | Method | Endpoint | Description |
@@ -136,8 +137,9 @@ npm run dev
 | `MONGODB_URI` | MongoDB connection string |
 | `MONGO_URL` | Railway MongoDB URL fallback (optional) |
 | `JWT_SECRET` | JWT signing secret |
-| `OTP_SECRET` | OTP hashing secret |
-| `MSG91_AUTH_KEY` | MSG91 API key |
+| `OTP_SECRET` | Email verification-code hashing secret |
+| `RESEND_API_KEY` | Resend API key used to send verification emails |
+| `EMAIL_FROM` | Verified sender, for example `ChinesApp <noreply@example.com>` |
 | `OPENAI_API_KEY` | OpenAI API key |
 | `GOOGLE_CLIENT_ID` | Google OAuth web client ID used to verify ID tokens |
 | `GOOGLE_PLAY_PACKAGE_NAME` | Play Console Android package (`com.chinesapp.learn`) |
@@ -157,7 +159,7 @@ npm run dev
    - MongoDB Atlas: paste the Atlas `mongodb+srv://...` connection string.
 4. Set `JWT_SECRET`, `OTP_SECRET`, `OPENAI_API_KEY`, admin credentials, `FRONTEND_URL`, and any enabled auth/payment provider variables, then redeploy.
 
-After `ADMIN_CONFIG_ENCRYPTION_KEY` is configured, OpenAI, Google, MSG91 and Razorpay credentials can be added or rotated from the admin panel's **API Keys** page. The browser only receives configured/masked status; raw saved secrets are never returned. Do not change the encryption key after saving secrets, otherwise the stored values cannot be decrypted.
+After `ADMIN_CONFIG_ENCRYPTION_KEY` is configured, OpenAI, Google, Resend and Razorpay credentials can be added or rotated from the admin panel's **API Keys** page. `EMAIL_FROM` remains a backend environment variable because it is not secret. The browser only receives configured/masked status; raw saved secrets are never returned. Do not change the encryption key after saving secrets, otherwise the stored values cannot be decrypted.
 
 Do not use `localhost` in `MONGODB_URI` on Railway. `localhost` points to the backend container itself, where MongoDB is not running.
 

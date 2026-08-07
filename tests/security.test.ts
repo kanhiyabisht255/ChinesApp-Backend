@@ -1,4 +1,5 @@
 import { hasActivePremium } from '../src/services/entitlement.service';
+import { normalizeEmail } from '../src/services/email-verification.service';
 import { assertJwtConfigured, extractToken, generateToken, verifyToken } from '../src/utils/jwt';
 import { normalizePhone } from '../src/utils/otp';
 
@@ -44,6 +45,16 @@ describe('phone normalization', () => {
 
   test.each([undefined, null, '', '1234', '1234567890123456'])('rejects invalid value %p', input => {
     expect(normalizePhone(input)).toBeNull();
+  });
+});
+
+describe('email normalization', () => {
+  test('normalizes a valid email address', () => {
+    expect(normalizeEmail('  Learner@Example.COM ')).toBe('learner@example.com');
+  });
+
+  test.each([undefined, null, '', 'not-an-email', 'missing-domain@'])('rejects invalid value %p', input => {
+    expect(normalizeEmail(input)).toBeNull();
   });
 });
 

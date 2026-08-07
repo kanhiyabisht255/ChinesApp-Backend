@@ -2,9 +2,11 @@ import { Request } from 'express';
 
 export interface IUser {
   _id: string;
-  phone: string;
+  phone?: string;
   name: string;
   email?: string;
+  emailVerified?: boolean;
+  passwordHash?: string;
   avatar?: string;
   isPremium: boolean;
   premiumExpiry?: Date;
