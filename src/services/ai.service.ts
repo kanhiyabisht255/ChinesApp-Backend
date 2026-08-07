@@ -2,6 +2,7 @@ import OpenAI, { toFile } from 'openai';
 import { getLanguageName, normalizeLanguageCode } from './localization.service';
 import { getAppConfig } from './config.service';
 import { getIntegrationSecret } from './integration-secrets.service';
+import { selectAIProvider } from './ai-provider.service';
 
 let openaiClient: OpenAI | null = null;
 let openaiClientKey = '';
@@ -18,20 +19,26 @@ export class AIServiceError extends Error {
   }
 }
 
-const getOpenAI = async (): Promise<OpenAI> => {
-  const apiKey = await getIntegrationSecret('OPENAI_API_KEY');
+const getOpenAI = async (capability = 'chat'): Promise<{ client: OpenAI; model?: string }> => {
+  const selected = await selectAIProvider(capability);
+  const routed = selected && ['openai', 'openrouter', 'groq', 'custom'].includes(selected.type) ? selected : null;
+  const apiKey = routed?.apiKey || await getIntegrationSecret('OPENAI_API_KEY');
   if (!apiKey || apiKey.startsWith('sk-your-')) {
     throw new AIServiceError('AI tutor is not configured yet');
   }
-  if (!openaiClient || openaiClientKey !== apiKey) {
+  const baseURL = routed?.baseUrl;
+  const cacheKey = `${apiKey}:${baseURL || 'default'}`;
+  if (!openaiClient || openaiClientKey !== cacheKey) {
     openaiClient = new OpenAI({
       apiKey,
+      baseURL,
       timeout: 30_000,
       maxRetries: 1,
     });
-    openaiClientKey = apiKey;
+    openaiClientKey = cacheKey;
   }
-  return openaiClient;
+  const model = capability === 'talk_transcription' ? routed?.transcriptionModel : capability === 'talk_tts' ? routed?.ttsModel : capability === 'talk_realtime' ? routed?.realtimeModel : routed?.chatModel;
+  return { client: openaiClient, model };
 };
 
 export interface TutorOptions {
@@ -88,8 +95,9 @@ export const generateAIResponse = async (
       { role: 'user', content: userMessage },
     ];
     
-    const completion = await (await getOpenAI()).chat.completions.create({
-      model: appConfig.aiConfig.model,
+    const routed = await getOpenAI('chat');
+    const completion = await routed.client.chat.completions.create({
+      model: routed.model || appConfig.aiConfig.model,
       messages,
       max_tokens: options.isVoiceCall
         ? Math.min(appConfig.aiConfig.maxTokens, 180)
@@ -139,9 +147,10 @@ export const transcribeAudio = async (
 ): Promise<string> => {
   try {
     const appConfig = await getAppConfig();
-    const transcription = await (await getOpenAI()).audio.transcriptions.create({
+    const routed = await getOpenAI('talk_transcription');
+    const transcription = await routed.client.audio.transcriptions.create({
       file: await toFile(audioBuffer, fileName, { type: mimeType }),
-      model: appConfig.aiConfig.transcriptionModel,
+      model: routed.model || appConfig.aiConfig.transcriptionModel,
       response_format: 'json',
       prompt: `Mandarin learning practice. The learner may mix Mandarin Chinese with ${getLanguageName(normalizeLanguageCode(options.nativeLanguage))}. Preserve what was actually spoken.`,
     });
@@ -159,8 +168,9 @@ export const transcribeAudio = async (
 export const generateSpeech = async (text: string): Promise<Buffer> => {
   try {
     const appConfig = await getAppConfig();
-    const response = await (await getOpenAI()).audio.speech.create({
-      model: appConfig.aiConfig.ttsModel,
+    const routed = await getOpenAI('talk_tts');
+    const response = await routed.client.audio.speech.create({
+      model: routed.model || appConfig.aiConfig.ttsModel,
       voice: appConfig.aiConfig.ttsVoice,
       input: text,
       instructions: 'Speak natural standard Mandarin Chinese with a warm, patient tutor voice. Pronounce tones clearly at a slightly slower learning pace without sounding robotic.',

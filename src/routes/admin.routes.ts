@@ -59,6 +59,10 @@ import {
   updateConfig,
   getIntegrations,
   updateIntegrations,
+  getAIProviders,
+  upsertAIProvider,
+  removeAIProvider,
+  getAIUsageStats,
 } from '../controllers/admin.controller';
 
 const router = Router();
@@ -131,5 +135,9 @@ router.get('/config', asyncHandler(getConfig));
 router.put('/config', asyncHandler(updateConfig));
 router.get('/integrations', asyncHandler(getIntegrations));
 router.put('/integrations', asyncHandler(updateIntegrations));
+router.get('/ai/providers', asyncHandler(getAIProviders));
+router.post('/ai/providers', asyncHandler(upsertAIProvider));
+router.delete('/ai/providers/:id', asyncHandler(removeAIProvider));
+router.get('/ai/usage', asyncHandler(getAIUsageStats));
 
 export default router;

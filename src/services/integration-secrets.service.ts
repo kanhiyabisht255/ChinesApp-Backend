@@ -98,6 +98,20 @@ export const updateIntegrationSecrets = async (updates: IntegrationSecretUpdates
   cachedAt = Date.now();
 };
 
+export const getCustomIntegrationSecret = async (name: string): Promise<string | undefined> => {
+  const secrets = await loadSecrets();
+  return secrets[name]?.trim() || process.env[name]?.trim() || undefined;
+};
+
+export const updateCustomIntegrationSecret = async (name: string, value: string | null): Promise<void> => {
+  const current = { ...(await loadSecrets()) };
+  if (value === null) delete current[name];
+  else if (value.trim()) current[name] = value.trim();
+  await AppSetting.findOneAndUpdate({ key: SETTING_KEY }, { $set: { value: encrypt(current) } }, { upsert: true, new: true });
+  cachedSecrets = current;
+  cachedAt = Date.now();
+};
+
 const mask = (value: string | undefined): string | null => {
   if (!value) return null;
   if (value.length <= 8) return '••••••••';

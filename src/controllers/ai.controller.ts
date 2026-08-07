@@ -10,7 +10,10 @@ import { randomUUID } from 'crypto';
 import mongoose from 'mongoose';
 import { User, Progress, CallSession, Scenario } from '../models';
 import type { AuthRequest, ITranscriptItem } from '../types';
-import { consumeAiQuota, hasActivePremium, refundAiQuota } from '../services/entitlement.service';
+import { consumeAiQuota, hasActivePremium, refundAiQuota, getAiUsage, recordAiMinutes } from '../services/entitlement.service';
+import { recordAiUsageEvent } from '../services/ai-usage.service';
+import { getAppConfig } from '../services/config.service';
+import { getIntegrationSecret } from '../services/integration-secrets.service';
 import { localWeekdayIndex, localWeekKey, normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
 import { buildVoiceCallContext, buildVoiceCallReport, type VoiceCallReport } from '../services/voice-session.service';
 import { hasContentAccess } from '../services/reward.service';
@@ -54,6 +57,17 @@ const activeVoiceCall = async (userId: string | undefined, sessionId: unknown) =
   return CallSession.findOne({ userId, sessionId, status: 'started' });
 };
 
+const enforceVoiceSessionAllowance = async (userId: string, activeCall: any): Promise<void> => {
+  if (!activeCall) return;
+  const [user, config] = await Promise.all([User.findById(userId).lean(), getAppConfig()]);
+  const premium = hasActivePremium(user);
+  const usage = await getAiUsage(userId, premium);
+  const sessionCap = (premium ? (config.aiConfig.premiumTalkMinutesPerSession || 15) : (config.aiConfig.freeTalkMaxMinutesPerSession || 3)) * 60;
+  const elapsed = Math.floor((Date.now() - activeCall.createdAt.getTime()) / 1000);
+  const remaining = Math.min(usage.talk.dailyLimitSeconds - usage.talk.usedSecondsToday, usage.talk.monthlyLimitSeconds == null ? Number.MAX_SAFE_INTEGER : usage.talk.monthlyLimitSeconds - usage.talk.usedSecondsMonth);
+  if (elapsed >= sessionCap || remaining <= 0) throw new AIServiceError('AI Talk allowance reached. End this session or upgrade your plan.', 'AI_TALK_LIMIT', 429);
+};
+
 export const startVoiceCall = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
   const { scenarioId, scenarioTitle } = req.body;
@@ -70,6 +84,11 @@ export const startVoiceCall = async (req: Request, res: Response): Promise<void>
       return;
     }
     const activePremium = hasActivePremium(user);
+    const usage = await getAiUsage(authReq.userId!, activePremium);
+    if (usage.talk.dailyLimitSeconds <= usage.talk.usedSecondsToday || (usage.talk.monthlyLimitSeconds != null && usage.talk.monthlyLimitSeconds <= usage.talk.usedSecondsMonth)) {
+      res.status(429).json({ success: false, message: 'Your AI Talk allowance is used for this period. Please wait for reset or upgrade your plan.', code: 'AI_TALK_LIMIT' });
+      return;
+    }
     const scenarioAccess = !scenario?.isPremium || activePremium || await hasContentAccess(
       authReq.userId,
       'scenario',
@@ -146,6 +165,7 @@ export const startVoiceCall = async (req: Request, res: Response): Promise<void>
 
 export const processVoiceAudio = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
+  const startedAt = Date.now();
   
   if (!req.file) {
     res.status(400).json({ success: false, message: 'Audio file required' });
@@ -161,6 +181,7 @@ export const processVoiceAudio = async (req: Request, res: Response): Promise<vo
       res.status(409).json({ success: false, message: 'Voice session is not active. Start a new call.' });
       return;
     }
+    await enforceVoiceSessionAllowance(authReq.userId!, activeCall);
     let contextMessages: string[] = [];
     if (typeof req.body.context === 'string') {
       try {
@@ -198,6 +219,7 @@ export const processVoiceAudio = async (req: Request, res: Response): Promise<vo
     const pronunciation = expectedChinese
       ? analyzePronunciation(expectedChinese, spokenText)
       : undefined;
+    await recordAiUsageEvent({ userId: authReq.userId, premium: premiumUser, feature: 'talk_response', status: 'success', inputAudioSeconds: Math.ceil(req.file.size / 16000), outputAudioSeconds: audioBase64 ? 1 : 0, durationMs: Date.now() - startedAt });
     if (activeCall) {
       await CallSession.updateOne(
         { _id: activeCall._id, status: 'started' },
@@ -254,6 +276,7 @@ export const processVoiceAudio = async (req: Request, res: Response): Promise<vo
 
 export const processVoiceText = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
+  const startedAt = Date.now();
   const { text, context, scenarioId } = req.body;
   
   let quotaConsumed = false;
@@ -281,6 +304,7 @@ export const processVoiceText = async (req: Request, res: Response): Promise<voi
     } catch (ttsError) {
       console.error('TTS unavailable, returning text response:', ttsError);
     }
+    await recordAiUsageEvent({ userId: authReq.userId, premium: premiumUser, feature: 'talk_response', status: 'success', durationMs: Date.now() - startedAt, outputAudioSeconds: audioBase64 ? 1 : 0 });
     
     res.json({
       success: true,
@@ -314,6 +338,7 @@ export const processVoiceAction = async (req: Request, res: Response): Promise<v
     res.status(409).json({ success: false, message: 'Voice session is not active. Start a new call.' });
     return;
   }
+  await enforceVoiceSessionAllowance(authReq.userId!, call);
 
   let quotaConsumed = false;
   let premiumUser = false;
@@ -388,7 +413,16 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
       if (!activeCall) return;
 
       const elapsedSeconds = Math.max(0, Math.floor((Date.now() - activeCall.createdAt.getTime()) / 1000));
-      safeDuration = Math.min(clientDuration, elapsedSeconds + 10, 7200);
+      const user = await User.findById(authReq.userId).session(dbSession);
+      const premium = hasActivePremium(user);
+      const usage = await getAiUsage(authReq.userId!, premium);
+      const config = await getAppConfig();
+      const sessionCap = (premium ? (config.aiConfig.premiumTalkMinutesPerSession || 15) : (config.aiConfig.freeTalkMaxMinutesPerSession || 3)) * 60;
+      const dailyRemaining = Math.max(0, usage.talk.dailyLimitSeconds - usage.talk.usedSecondsToday);
+      const monthlyRemaining = usage.talk.monthlyLimitSeconds == null
+        ? Number.MAX_SAFE_INTEGER
+        : Math.max(0, usage.talk.monthlyLimitSeconds - usage.talk.usedSecondsMonth);
+      safeDuration = Math.min(clientDuration, elapsedSeconds + 10, sessionCap, dailyRemaining, monthlyRemaining, 7200);
       const serverTranscript = activeCall.transcript?.length > 0
         ? activeCall.transcript.map(item => ({
             role: item.role,
@@ -424,12 +458,12 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
       );
       if (!call) return;
 
-      const user = await User.findByIdAndUpdate(
+      const updatedUser = await User.findByIdAndUpdate(
         authReq.userId,
         { $inc: { xp: xpEarned } },
         { new: true, session: dbSession }
       );
-      if (!user) throw new Error('User not found');
+      if (!updatedUser) throw new Error('User not found');
 
       if (hasMeaningfulPractice) {
         streak = await recordLearningActivity(
@@ -495,11 +529,47 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
     return;
   }
 
+  await recordAiMinutes(authReq.userId!, safeDuration);
+
   res.json({
     success: true,
     message: 'Call ended and progress saved',
     data: { xpEarned, duration: safeDuration, streak, todayMinutes, ...callReport },
   });
+};
+
+export const getAiUsageSummary = async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const user = await User.findById(authReq.userId).lean();
+  if (!user) {
+    res.status(404).json({ success: false, message: 'User not found' });
+    return;
+  }
+  res.json({ success: true, data: await getAiUsage(authReq.userId!, hasActivePremium(user)) });
+};
+
+export const createRealtimeToken = async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  try {
+    const [user, config, apiKey] = await Promise.all([User.findById(authReq.userId).lean(), getAppConfig(), getIntegrationSecret('OPENAI_API_KEY')]);
+    if (!user) { res.status(404).json({ success: false, message: 'User not found' }); return; }
+    if (!config.aiConfig.realtimeTalkEnabled) { res.status(503).json({ success: false, message: 'Live Realtime Talk is disabled' }); return; }
+    if (!hasActivePremium(user)) { res.status(403).json({ success: false, message: 'Premium is required for Ling Live' }); return; }
+    const usage = await getAiUsage(authReq.userId!, true);
+    if (usage.talk.dailyLimitSeconds <= usage.talk.usedSecondsToday || (usage.talk.monthlyLimitSeconds != null && usage.talk.monthlyLimitSeconds <= usage.talk.usedSecondsMonth)) { res.status(429).json({ success: false, message: 'Monthly AI Talk allowance reached', code: 'AI_TALK_LIMIT' }); return; }
+    if (!apiKey) { res.status(503).json({ success: false, message: 'Realtime provider is not configured' }); return; }
+    const upstream = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: { type: 'realtime', model: config.aiConfig.realtimeTalkEnabled ? 'gpt-4o-realtime-preview' : 'gpt-4o-mini-realtime-preview', modalities: ['audio', 'text'], instructions: 'You are Ling, a concise Mandarin Chinese tutor. Correct gently after several turns.' } }),
+    });
+    const payload = await upstream.json() as Record<string, unknown>;
+    if (!upstream.ok) { res.status(502).json({ success: false, message: 'Realtime provider rejected the session' }); return; }
+    res.json({ success: true, data: { clientSecret: (payload.value as string) || (payload.client_secret as string), expiresAt: payload.expires_at } });
+  } catch (error) {
+    console.error('Realtime token error:', error);
+    sendAIError(res, error, 'Unable to start Ling Live');
+  }
 };
 
 export const getChatMessages = async (req: Request, res: Response): Promise<void> => {
@@ -515,6 +585,7 @@ export const getChatMessages = async (req: Request, res: Response): Promise<void
 
 export const sendChatMessage = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
+  const startedAt = Date.now();
   const { message } = req.body;
   
   if (typeof message !== 'string' || message.trim().length === 0 || message.length > 2000) {
@@ -556,6 +627,7 @@ export const sendChatMessage = async (req: Request, res: Response): Promise<void
       correction: aiResponse.correction,
       feedback: aiResponse.feedback,
     });
+    await recordAiUsageEvent({ userId: authReq.userId, premium: premiumUser, feature: 'chat', status: 'success', durationMs: Date.now() - startedAt });
 
     res.json({
       success: true,
@@ -583,4 +655,13 @@ export const clearChat = async (req: Request, res: Response): Promise<void> => {
   await ChatMessage.deleteMany({ userId: authReq.userId });
   
   res.json({ success: true, message: 'Chat cleared' });
+};
+
+export const getChatReport = async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const { ChatMessage } = await import('../models');
+  const messages = await ChatMessage.find({ userId: authReq.userId }).sort({ createdAt: -1 }).limit(60).lean();
+  const corrections = messages.map(message => message.correction).filter((value): value is string => Boolean(value)).slice(0, 3);
+  const words = messages.flatMap(message => String(message.content || '').match(/[\u4e00-\u9fff]{2,6}/g) || []).filter((word, index, all) => all.indexOf(word) === index).slice(0, 5);
+  res.json({ success: true, data: { corrections, newWords: words, grammarWeakness: corrections.length ? 'Review the corrections above and reuse each sentence.' : 'Keep practicing complete Chinese sentences.', nextPractice: corrections.length ? 'Try a role-play using your corrected sentences.' : 'Practice a restaurant or travel conversation next.' } });
 };

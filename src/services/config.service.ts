@@ -1,7 +1,7 @@
 import type { AppConfig } from '../types';
 import { AppSetting } from '../models';
 
-const MONETIZATION_POLICY_VERSION = 3;
+const MONETIZATION_POLICY_VERSION = 4;
 
 const DEFAULT_CONFIG: AppConfig = {
   monetizationPolicyVersion: MONETIZATION_POLICY_VERSION,
@@ -22,6 +22,18 @@ const DEFAULT_CONFIG: AppConfig = {
     ttsModel: 'gpt-4o-mini-tts',
     ttsVoice: 'marin',
     ttsSpeed: 0.9,
+    freeChatMessagesPerDay: 10,
+    premiumChatMessagesPerDay: 100,
+    premiumChatMessagesPerMonth: 1000,
+    freeTalkDemoMinutesPerDay: 3,
+    freeTalkMaxMinutesPerSession: 3,
+    freeTalkMaxTurnsPerSession: 5,
+    premiumTalkMinutesPerSession: 15,
+    premiumTalkMinutesPerDay: 20,
+    premiumTalkMinutesPerMonth: 300,
+    realtimeTalkEnabled: true,
+    globalDailyBudgetUsd: 100,
+    globalMonthlyBudgetUsd: 2000,
   },
   pricing: {
     monthly: 499,
@@ -29,9 +41,9 @@ const DEFAULT_CONFIG: AppConfig = {
     lifetime: 7999,
   },
   monetization: {
-    freeVoiceCallsPerDay: 3,
-    freeVoiceTurnsPerDay: 10,
-    freeChatMessagesPerDay: 20,
+    freeVoiceCallsPerDay: 1,
+    freeVoiceTurnsPerDay: 5,
+    freeChatMessagesPerDay: 10,
     voiceCallGemCost: 20,
     voiceTurnGemCost: 5,
     chatMessageGemCost: 5,
@@ -91,6 +103,12 @@ export const getAppConfig = async (): Promise<AppConfig> => {
           contentUnlockHours: 24,
           rewardedContentTypes: ['lesson', 'reading', 'listening', 'vocabulary', 'story'],
         },
+        monetization: {
+          ...cachedConfig.monetization,
+          freeVoiceCallsPerDay: 1,
+          freeVoiceTurnsPerDay: 5,
+          freeChatMessagesPerDay: 10,
+        },
       });
       await AppSetting.findOneAndUpdate(
         { key: 'app-config' },
@@ -123,6 +141,18 @@ export const updateLocalConfig = async (updates: Partial<AppConfig>): Promise<Ap
       ttsModel: String(merged.aiConfig.ttsModel || current.aiConfig.ttsModel).trim().slice(0, 100),
       ttsVoice: String(merged.aiConfig.ttsVoice || current.aiConfig.ttsVoice).trim().slice(0, 50),
       ttsSpeed: Math.max(0.5, Math.min(Number(merged.aiConfig.ttsSpeed) || current.aiConfig.ttsSpeed, 1.2)),
+      freeChatMessagesPerDay: Math.max(0, Math.min(Math.round(Number(merged.aiConfig.freeChatMessagesPerDay) || current.aiConfig.freeChatMessagesPerDay || 10), 10000)),
+      premiumChatMessagesPerDay: Math.max(0, Math.min(Math.round(Number(merged.aiConfig.premiumChatMessagesPerDay) || current.aiConfig.premiumChatMessagesPerDay || 100), 10000)),
+      premiumChatMessagesPerMonth: Math.max(0, Math.min(Math.round(Number(merged.aiConfig.premiumChatMessagesPerMonth) || current.aiConfig.premiumChatMessagesPerMonth || 1000), 100000)),
+      freeTalkDemoMinutesPerDay: Math.max(1, Math.min(Math.round(Number(merged.aiConfig.freeTalkDemoMinutesPerDay) || current.aiConfig.freeTalkDemoMinutesPerDay || 3), 60)),
+      freeTalkMaxMinutesPerSession: Math.max(1, Math.min(Math.round(Number(merged.aiConfig.freeTalkMaxMinutesPerSession) || current.aiConfig.freeTalkMaxMinutesPerSession || 3), 60)),
+      freeTalkMaxTurnsPerSession: Math.max(1, Math.min(Math.round(Number(merged.aiConfig.freeTalkMaxTurnsPerSession) || current.aiConfig.freeTalkMaxTurnsPerSession || 5), 100)),
+      premiumTalkMinutesPerSession: Math.max(1, Math.min(Math.round(Number(merged.aiConfig.premiumTalkMinutesPerSession) || current.aiConfig.premiumTalkMinutesPerSession || 15), 120)),
+      premiumTalkMinutesPerDay: Math.max(1, Math.min(Math.round(Number(merged.aiConfig.premiumTalkMinutesPerDay) || current.aiConfig.premiumTalkMinutesPerDay || 20), 1440)),
+      premiumTalkMinutesPerMonth: Math.max(1, Math.min(Math.round(Number(merged.aiConfig.premiumTalkMinutesPerMonth) || current.aiConfig.premiumTalkMinutesPerMonth || 300), 100000)),
+      realtimeTalkEnabled: Boolean(merged.aiConfig.realtimeTalkEnabled ?? current.aiConfig.realtimeTalkEnabled),
+      globalDailyBudgetUsd: Math.max(0, Math.min(Number(merged.aiConfig.globalDailyBudgetUsd) || current.aiConfig.globalDailyBudgetUsd || 100, 1_000_000)),
+      globalMonthlyBudgetUsd: Math.max(0, Math.min(Number(merged.aiConfig.globalMonthlyBudgetUsd) || current.aiConfig.globalMonthlyBudgetUsd || 2000, 10_000_000)),
     },
     pricing: {
       monthly: Math.max(1, Math.min(Number(merged.pricing.monthly) || current.pricing.monthly, 1_000_000)),

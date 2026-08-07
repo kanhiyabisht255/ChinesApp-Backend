@@ -571,6 +571,18 @@ export interface AppConfig {
     ttsModel: string;
     ttsVoice: string;
     ttsSpeed: number;
+    freeChatMessagesPerDay?: number;
+    premiumChatMessagesPerDay?: number;
+    premiumChatMessagesPerMonth?: number;
+    freeTalkDemoMinutesPerDay?: number;
+    freeTalkMaxMinutesPerSession?: number;
+    freeTalkMaxTurnsPerSession?: number;
+    premiumTalkMinutesPerSession?: number;
+    premiumTalkMinutesPerDay?: number;
+    premiumTalkMinutesPerMonth?: number;
+    realtimeTalkEnabled?: boolean;
+    globalDailyBudgetUsd?: number;
+    globalMonthlyBudgetUsd?: number;
   };
   pricing: {
     monthly: number;

@@ -15,6 +15,7 @@ import {
   Scenario,
   Subscription,
   GemTransaction,
+  AIUsageEvent,
 } from '../models';
 import { generateToken } from '../utils/jwt';
 import { getAppConfig, updateLocalConfig } from '../services/config.service';
@@ -29,6 +30,7 @@ import {
   updateIntegrationSecrets,
   type IntegrationSecretUpdates,
 } from '../services/integration-secrets.service';
+import { deleteAIProvider, listAIProviders, providerSecretConfigured, saveAIProvider } from '../services/ai-provider.service';
 
 const slugify = (value: string): string => value
   .toLowerCase()
@@ -635,6 +637,32 @@ export const updateConfig = async (req: Request, res: Response): Promise<void> =
   const updates = req.body as Partial<AppConfig>;
   const config = await updateLocalConfig(updates);
   res.json({ success: true, message: 'Config updated', data: config });
+};
+
+export const getAIProviders = async (_req: Request, res: Response): Promise<void> => {
+  const providers = await listAIProviders();
+  res.json({ success: true, data: await Promise.all(providers.map(async provider => ({ ...provider, apiKeyConfigured: await providerSecretConfigured(provider) }))) });
+};
+
+export const upsertAIProvider = async (req: Request, res: Response): Promise<void> => {
+  const provider = await saveAIProvider(req.body || {});
+  res.json({ success: true, message: 'AI provider saved', data: { ...provider, apiKey: undefined, apiKeyConfigured: await providerSecretConfigured(provider) } });
+};
+
+export const removeAIProvider = async (req: Request, res: Response): Promise<void> => {
+  await deleteAIProvider(String(req.params.id));
+  res.json({ success: true, message: 'AI provider removed' });
+};
+
+export const getAIUsageStats = async (req: Request, res: Response): Promise<void> => {
+  const days = Math.max(1, Math.min(Number(req.query.days) || 30, 90));
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const [summary, byFeature, byModel] = await Promise.all([
+    AIUsageEvent.aggregate([{ $match: { createdAt: { $gte: since } } }, { $group: { _id: '$status', requests: { $sum: 1 }, costUsd: { $sum: '$estimatedCostUsd' }, inputAudioSeconds: { $sum: '$inputAudioSeconds' }, outputAudioSeconds: { $sum: '$outputAudioSeconds' } } }]),
+    AIUsageEvent.aggregate([{ $match: { createdAt: { $gte: since } } }, { $group: { _id: '$feature', requests: { $sum: 1 }, costUsd: { $sum: '$estimatedCostUsd' }, durationMs: { $sum: '$durationMs' } } }, { $sort: { requests: -1 } }]),
+    AIUsageEvent.aggregate([{ $match: { createdAt: { $gte: since } } }, { $group: { _id: { provider: '$provider', model: '$model' }, requests: { $sum: 1 }, costUsd: { $sum: '$estimatedCostUsd' } } }, { $sort: { requests: -1 } }]),
+  ]);
+  res.json({ success: true, data: { days, summary, byFeature, byModel } });
 };
 
 const integrationFieldMap: Record<string, keyof IntegrationSecretUpdates> = {

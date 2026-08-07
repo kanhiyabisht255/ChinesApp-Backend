@@ -533,6 +533,8 @@ const aiUsageSchema = new Schema({
   voiceCalls: { type: Number, default: 0 },
   voiceTurns: { type: Number, default: 0 },
   chatMessages: { type: Number, default: 0 },
+  voiceSeconds: { type: Number, default: 0 },
+  estimatedCostUsd: { type: Number, default: 0 },
 }, { timestamps: true });
 aiUsageSchema.index({ userId: 1, date: 1 }, { unique: true });
 
@@ -589,5 +591,22 @@ export const Subscription = mongoose.model<ISubscriptionDoc>('Subscription', sub
 export const GemTransaction = mongoose.model<IGemTransactionDoc>('GemTransaction', gemTransactionSchema);
 export const AppSetting = mongoose.model('AppSetting', appSettingSchema);
 export const AIUsage = mongoose.model('AIUsage', aiUsageSchema);
+const aiUsageEventSchema = new Schema({
+  userId: { type: String, index: true },
+  plan: { type: String, enum: ['free', 'premium'], required: true },
+  feature: { type: String, enum: ['chat', 'talk_transcription', 'talk_response', 'talk_tts', 'talk_realtime'], required: true, index: true },
+  provider: { type: String, default: 'openai' },
+  model: { type: String },
+  status: { type: String, enum: ['success', 'failure'], required: true },
+  inputTokens: { type: Number, default: 0 },
+  outputTokens: { type: Number, default: 0 },
+  inputAudioSeconds: { type: Number, default: 0 },
+  outputAudioSeconds: { type: Number, default: 0 },
+  durationMs: { type: Number, default: 0 },
+  estimatedCostUsd: { type: Number, default: 0 },
+  metadata: { type: Schema.Types.Mixed, default: {} },
+}, { timestamps: true });
+aiUsageEventSchema.index({ createdAt: -1 });
+export const AIUsageEvent = mongoose.model('AIUsageEvent', aiUsageEventSchema);
 export const RewardGrant = mongoose.model('RewardGrant', rewardGrantSchema);
 export const EmailVerificationCode = mongoose.model('EmailVerificationCode', emailVerificationCodeSchema);
