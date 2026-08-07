@@ -100,7 +100,7 @@ export const startVoiceCall = async (req: Request, res: Response): Promise<void>
     }
     const quota = await consumeAiQuota(authReq.userId, 'voiceCalls', activePremium);
     if (!quota.allowed) {
-      res.status(429).json({ success: false, message: 'Daily free AI call limit reached. Upgrade to Premium for unlimited speaking practice.' });
+      res.status(429).json({ success: false, message: 'Today\'s AI Talk allowance is used. Upgrade for a larger monthly allowance or wait for reset.', code: 'AI_TALK_LIMIT' });
       return;
     }
 
@@ -199,7 +199,7 @@ export const processVoiceAudio = async (req: Request, res: Response): Promise<vo
     premiumUser = hasActivePremium(tutor.user);
     const quota = await consumeAiQuota(authReq.userId, 'voiceTurns', premiumUser);
     if (!quota.allowed) {
-      res.status(429).json({ success: false, message: 'Daily free speaking-turn limit reached. Upgrade to Premium for unlimited AI practice.' });
+      res.status(429).json({ success: false, message: 'Today\'s AI Talk turn allowance is used. Upgrade for a larger allowance or wait for reset.', code: 'AI_TALK_LIMIT' });
       return;
     }
     quotaConsumed = true;
@@ -293,7 +293,7 @@ export const processVoiceText = async (req: Request, res: Response): Promise<voi
     premiumUser = hasActivePremium(tutor.user);
     const quota = await consumeAiQuota(authReq.userId, 'voiceTurns', premiumUser);
     if (!quota.allowed) {
-      res.status(429).json({ success: false, message: 'Daily free speaking-turn limit reached. Upgrade to Premium for unlimited AI practice.' });
+      res.status(429).json({ success: false, message: 'Today\'s AI Talk turn allowance is used. Upgrade for a larger allowance or wait for reset.', code: 'AI_TALK_LIMIT' });
       return;
     }
     quotaConsumed = true;
@@ -347,7 +347,7 @@ export const processVoiceAction = async (req: Request, res: Response): Promise<v
     premiumUser = hasActivePremium(tutor.user);
     const quota = await consumeAiQuota(authReq.userId, 'voiceTurns', premiumUser);
     if (!quota.allowed) {
-      res.status(429).json({ success: false, message: 'Daily free speaking-turn limit reached. Upgrade to Premium for unlimited AI practice.' });
+      res.status(429).json({ success: false, message: 'Today\'s AI Talk turn allowance is used. Upgrade for a larger allowance or wait for reset.', code: 'AI_TALK_LIMIT' });
       return;
     }
     quotaConsumed = true;
@@ -601,7 +601,7 @@ export const sendChatMessage = async (req: Request, res: Response): Promise<void
     premiumUser = hasActivePremium(tutor.user);
     const quota = await consumeAiQuota(authReq.userId, 'chatMessages', premiumUser);
     if (!quota.allowed) {
-      res.status(429).json({ success: false, message: 'Daily free AI chat limit reached. Upgrade to Premium for unlimited tutoring.' });
+      res.status(429).json({ success: false, message: 'Today\'s AI Chat allowance is used. Upgrade for a larger monthly allowance or wait for reset.', code: 'AI_CHAT_LIMIT' });
       return;
     }
     quotaConsumed = true;
