@@ -647,6 +647,9 @@ const integrationFieldMap: Record<string, keyof IntegrationSecretUpdates> = {
   youbotApiKey: 'YOUBOT_API_KEY',
   googleDriveServiceAccountJson: 'GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON',
   googleDriveFolderId: 'GOOGLE_DRIVE_FOLDER_ID',
+  cloudinaryCloudName: 'CLOUDINARY_CLOUD_NAME',
+  cloudinaryApiKey: 'CLOUDINARY_API_KEY',
+  cloudinaryApiSecret: 'CLOUDINARY_API_SECRET',
 };
 
 const integrationStatusPayload = async () => {

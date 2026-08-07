@@ -30,7 +30,8 @@ export interface IUser {
 
 export type LearningLevel = 'starter' | 'beginner' | 'intermediate' | 'advanced' | 'fluent';
 export type AccessTier = 'free' | 'premium';
-export type RewardedContentType = 'lesson' | 'reading' | 'listening' | 'vocabulary' | 'scenario';
+export type RewardedContentType = 'lesson' | 'reading' | 'listening' | 'vocabulary' | 'story' | 'scenario';
+export type NarratedStoryAccessTier = 'free' | 'rewarded_or_premium' | 'premium';
 export type LessonType =
   | 'pronunciation'
   | 'vocabulary'
@@ -280,6 +281,21 @@ export interface IUserReadingProgress {
   updatedAt: Date;
 }
 
+export interface IUserNarratedStoryProgress {
+  _id: string;
+  userId: string;
+  storyId: string;
+  positionMs: number;
+  durationMs: number;
+  completionPercent: number;
+  isCompleted: boolean;
+  playCount: number;
+  lastPlayedAt?: Date;
+  completedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface IUserListeningProgress {
   _id: string;
   userId: string;
@@ -435,6 +451,62 @@ export interface IReadingStory {
   contentVersion?: string;
   translations?: Map<string, Map<string, string>>;
   createdAt: Date;
+}
+
+export interface INarratedStorySegment {
+  chinese: string;
+  pinyin: string;
+  english: string;
+  startMs: number;
+  endMs: number;
+}
+
+export interface INarratedStoryVocabulary {
+  chinese: string;
+  pinyin: string;
+  english: string;
+}
+
+export interface INarratedStoryQuestion {
+  prompt: string;
+  options: string[];
+  answer: string;
+  explanation: string;
+}
+
+export interface INarratedStory {
+  _id: string;
+  slug: string;
+  title: string;
+  titleCn: string;
+  pinyin: string;
+  description: string;
+  category: string;
+  hskLevel: number;
+  coverImageUrl?: string;
+  accentColor: string;
+  accessTier: NarratedStoryAccessTier;
+  isPremium: boolean;
+  isPublished: boolean;
+  isFeatured: boolean;
+  order: number;
+  durationMs: number;
+  estimatedMinutes: number;
+  sourceAudioUrl: string;
+  audioUrl: string;
+  audioStorageProvider: 'cloudinary' | 'external';
+  audioPublicId?: string;
+  audioFormat: string;
+  audioBytes: number;
+  timingMode: 'estimated' | 'manual';
+  segments: INarratedStorySegment[];
+  vocabulary: INarratedStoryVocabulary[];
+  questions: INarratedStoryQuestion[];
+  contentHash: string;
+  titleKey: string;
+  titleCnKey: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface ISubscription {

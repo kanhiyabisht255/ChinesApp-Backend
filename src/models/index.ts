@@ -10,9 +10,11 @@ interface IVocabularyTopicDoc extends Document, Omit<import('../types').IVocabul
 interface IVocabularyWordDoc extends Document, Omit<import('../types').IVocabularyWord, '_id'> {}
 interface IUserVocabularyProgressDoc extends Document, Omit<import('../types').IUserVocabularyProgress, '_id'> {}
 interface IUserReadingProgressDoc extends Document, Omit<import('../types').IUserReadingProgress, '_id'> {}
+interface IUserNarratedStoryProgressDoc extends Document, Omit<import('../types').IUserNarratedStoryProgress, '_id'> {}
 interface IUserListeningProgressDoc extends Document, Omit<import('../types').IUserListeningProgress, '_id'> {}
 interface IScenarioDoc extends Document, Omit<import('../types').IScenario, '_id'> {}
 interface IReadingStoryDoc extends Document, Omit<import('../types').IReadingStory, '_id'> {}
+interface INarratedStoryDoc extends Document, Omit<import('../types').INarratedStory, '_id'> {}
 interface IListeningLessonDoc extends Document, Omit<import('../types').IListeningLesson, '_id'> {}
 interface ISubscriptionDoc extends Document, Omit<import('../types').ISubscription, '_id'> {}
 interface IGemTransactionDoc extends Document, Omit<import('../types').IGemTransaction, '_id'> {}
@@ -286,6 +288,19 @@ const userReadingProgressSchema = new Schema<IUserReadingProgressDoc>({
 }, { timestamps: true });
 userReadingProgressSchema.index({ userId: 1, storyId: 1 }, { unique: true });
 
+const userNarratedStoryProgressSchema = new Schema<IUserNarratedStoryProgressDoc>({
+  userId: { type: String, required: true, index: true },
+  storyId: { type: String, required: true, index: true },
+  positionMs: { type: Number, default: 0, min: 0 },
+  durationMs: { type: Number, default: 0, min: 0 },
+  completionPercent: { type: Number, default: 0, min: 0, max: 100 },
+  isCompleted: { type: Boolean, default: false, index: true },
+  playCount: { type: Number, default: 0, min: 0 },
+  lastPlayedAt: { type: Date },
+  completedAt: { type: Date },
+}, { timestamps: true });
+userNarratedStoryProgressSchema.index({ userId: 1, storyId: 1 }, { unique: true });
+
 const userListeningProgressSchema = new Schema<IUserListeningProgressDoc>({
   userId: { type: String, required: true, index: true },
   lessonId: { type: String, required: true, index: true },
@@ -380,6 +395,59 @@ const readingStorySchema = new Schema<IReadingStoryDoc>({
   source: { type: String, enum: ['packaged', 'admin'], default: 'admin', index: true },
   contentVersion: { type: String, default: '1' },
   translations: { type: Map, of: Map, default: {} },
+}, { timestamps: true });
+
+const narratedStorySegmentSchema = new Schema({
+  chinese: { type: String, required: true, trim: true },
+  pinyin: { type: String, required: true, trim: true },
+  english: { type: String, required: true, trim: true },
+  startMs: { type: Number, required: true, min: 0 },
+  endMs: { type: Number, required: true, min: 1 },
+}, { _id: false });
+
+const narratedStoryVocabularySchema = new Schema({
+  chinese: { type: String, required: true, trim: true },
+  pinyin: { type: String, required: true, trim: true },
+  english: { type: String, required: true, trim: true },
+}, { _id: false });
+
+const narratedStoryQuestionSchema = new Schema({
+  prompt: { type: String, required: true, trim: true },
+  options: [{ type: String, required: true, trim: true }],
+  answer: { type: String, required: true, trim: true },
+  explanation: { type: String, required: true, trim: true },
+}, { _id: false });
+
+const narratedStorySchema = new Schema<INarratedStoryDoc>({
+  slug: { type: String, required: true, unique: true, index: true, trim: true },
+  title: { type: String, required: true, trim: true },
+  titleCn: { type: String, required: true, trim: true },
+  pinyin: { type: String, default: '', trim: true },
+  description: { type: String, default: '', trim: true },
+  category: { type: String, default: 'everyday', trim: true, index: true },
+  hskLevel: { type: Number, required: true, min: 1, max: 6, index: true },
+  coverImageUrl: { type: String, trim: true },
+  accentColor: { type: String, default: '#7F43FE', trim: true },
+  accessTier: { type: String, enum: ['free', 'rewarded_or_premium', 'premium'], default: 'rewarded_or_premium', index: true },
+  isPremium: { type: Boolean, default: true, index: true },
+  isPublished: { type: Boolean, default: false, index: true },
+  isFeatured: { type: Boolean, default: false, index: true },
+  order: { type: Number, default: 0, index: true },
+  durationMs: { type: Number, required: true, min: 1 },
+  estimatedMinutes: { type: Number, default: 1, min: 1, max: 180 },
+  sourceAudioUrl: { type: String, required: true, trim: true },
+  audioUrl: { type: String, required: true, trim: true },
+  audioStorageProvider: { type: String, enum: ['cloudinary', 'external'], required: true },
+  audioPublicId: { type: String, trim: true },
+  audioFormat: { type: String, default: 'm4a', trim: true },
+  audioBytes: { type: Number, default: 0, min: 0 },
+  timingMode: { type: String, enum: ['estimated', 'manual'], default: 'estimated' },
+  segments: { type: [narratedStorySegmentSchema], validate: [(value: unknown[]) => value.length > 0, 'At least one story segment is required'] },
+  vocabulary: [narratedStoryVocabularySchema],
+  questions: [narratedStoryQuestionSchema],
+  contentHash: { type: String, required: true, unique: true, index: true },
+  titleKey: { type: String, required: true, unique: true, index: true },
+  titleCnKey: { type: String, required: true, unique: true, index: true },
 }, { timestamps: true });
 
 const listeningSegmentSchema = new Schema({
@@ -504,6 +572,10 @@ export const UserReadingProgress = mongoose.model<IUserReadingProgressDoc>(
   'UserReadingProgress',
   userReadingProgressSchema,
 );
+export const UserNarratedStoryProgress = mongoose.model<IUserNarratedStoryProgressDoc>(
+  'UserNarratedStoryProgress',
+  userNarratedStoryProgressSchema,
+);
 export const UserListeningProgress = mongoose.model<IUserListeningProgressDoc>(
   'UserListeningProgress',
   userListeningProgressSchema,
@@ -511,6 +583,7 @@ export const UserListeningProgress = mongoose.model<IUserListeningProgressDoc>(
 export const VocabularyReviewSession = mongoose.model('VocabularyReviewSession', vocabularyReviewSessionSchema);
 export const Scenario = mongoose.model<IScenarioDoc>('Scenario', scenarioSchema);
 export const ReadingStory = mongoose.model<IReadingStoryDoc>('ReadingStory', readingStorySchema);
+export const NarratedStory = mongoose.model<INarratedStoryDoc>('NarratedStory', narratedStorySchema);
 export const ListeningLesson = mongoose.model<IListeningLessonDoc>('ListeningLesson', listeningLessonSchema);
 export const Subscription = mongoose.model<ISubscriptionDoc>('Subscription', subscriptionSchema);
 export const GemTransaction = mongoose.model<IGemTransactionDoc>('GemTransaction', gemTransactionSchema);

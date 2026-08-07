@@ -5,6 +5,7 @@ import {
   AIUsage,
   Lesson,
   ListeningLesson,
+  NarratedStory,
   ReadingStory,
   RewardGrant,
   Scenario,
@@ -23,6 +24,7 @@ const contentModels: Record<RewardedContentType, Model<any>> = {
   reading: ReadingStory,
   listening: ListeningLesson,
   vocabulary: VocabularyTopic,
+  story: NarratedStory,
   scenario: Scenario,
 };
 
@@ -81,7 +83,7 @@ export const prepareReward = async (req: Request, res: Response): Promise<void> 
     }
     const requestedId = String(req.body.contentId || '').trim();
     const content = (requestedId
-      ? await contentModels[validContentType].findOne({ ...idOrSlugQuery(requestedId), isPublished: true }).select('_id isPremium').lean()
+      ? await contentModels[validContentType].findOne({ ...idOrSlugQuery(requestedId), isPublished: true }).select('_id isPremium accessTier').lean()
       : null) as { _id: unknown; isPremium?: boolean } | null;
     if (!content) {
       res.status(404).json({ success: false, message: 'Content not found' });
@@ -89,6 +91,10 @@ export const prepareReward = async (req: Request, res: Response): Promise<void> 
     }
     if (!content.isPremium) {
       res.status(409).json({ success: false, message: 'This content is already free' });
+      return;
+    }
+    if (validContentType === 'story' && (content as { accessTier?: string }).accessTier === 'premium') {
+      res.status(403).json({ success: false, message: 'This story is Premium-only' });
       return;
     }
     contentId = String(content._id);

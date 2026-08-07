@@ -1,7 +1,7 @@
 import type { AppConfig } from '../types';
 import { AppSetting } from '../models';
 
-const MONETIZATION_POLICY_VERSION = 2;
+const MONETIZATION_POLICY_VERSION = 3;
 
 const DEFAULT_CONFIG: AppConfig = {
   monetizationPolicyVersion: MONETIZATION_POLICY_VERSION,
@@ -49,7 +49,7 @@ const DEFAULT_CONFIG: AppConfig = {
     contentUnlockHours: 24,
     voiceCallsPerReward: 1,
     voiceTurnsPerReward: 2,
-    rewardedContentTypes: ['lesson', 'reading', 'listening', 'vocabulary'],
+    rewardedContentTypes: ['lesson', 'reading', 'listening', 'vocabulary', 'story'],
   },
 };
 
@@ -89,7 +89,7 @@ export const getAppConfig = async (): Promise<AppConfig> => {
           interstitialCooldownSeconds: 600,
           maxRewardedAdsPerDay: 3,
           contentUnlockHours: 24,
-          rewardedContentTypes: ['lesson', 'reading', 'listening', 'vocabulary'],
+          rewardedContentTypes: ['lesson', 'reading', 'listening', 'vocabulary', 'story'],
         },
       });
       await AppSetting.findOneAndUpdate(
@@ -155,7 +155,7 @@ export const updateLocalConfig = async (updates: Partial<AppConfig>): Promise<Ap
       voiceTurnsPerReward: Math.max(1, Math.min(Math.round(Number(merged.ads.voiceTurnsPerReward) || current.ads.voiceTurnsPerReward), 20)),
       rewardedContentTypes: [...new Set(
         (Array.isArray(merged.ads.rewardedContentTypes) ? merged.ads.rewardedContentTypes : current.ads.rewardedContentTypes)
-          .filter(type => ['lesson', 'reading', 'listening', 'vocabulary'].includes(type)),
+          .filter(type => ['lesson', 'reading', 'listening', 'vocabulary', 'story'].includes(type)),
       )] as AppConfig['ads']['rewardedContentTypes'],
     },
   };

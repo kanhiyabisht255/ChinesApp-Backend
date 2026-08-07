@@ -7,6 +7,7 @@ export const REWARDED_CONTENT_TYPES: RewardedContentType[] = [
   'reading',
   'listening',
   'vocabulary',
+  'story',
   'scenario',
 ];
 

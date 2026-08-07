@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { authMiddleware, adminMiddleware, rateLimitMiddleware } from '../middleware/auth';
 import { asyncHandler } from '../middleware/error';
 import {
@@ -6,6 +7,14 @@ import {
   getGeneratedAudioStories,
   updateGeneratedAudioStory,
 } from '../controllers/admin-story-audio.controller';
+import {
+  bulkImportNarratedStories,
+  checkNarratedStoryDuplicate,
+  createNarratedStory,
+  deleteNarratedStory,
+  getAdminNarratedStories,
+  updateNarratedStory,
+} from '../controllers/narrated-story.controller';
 import {
   adminLogin,
   getDashboardStats,
@@ -53,6 +62,10 @@ import {
 } from '../controllers/admin.controller';
 
 const router = Router();
+const storyAudioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024, files: 1 },
+});
 
 router.post('/login', rateLimitMiddleware(5, 15 * 60_000), asyncHandler(adminLogin));
 
@@ -106,6 +119,13 @@ router.delete('/listening/:id', asyncHandler(deleteListeningLesson));
 router.get('/audio-stories', asyncHandler(getGeneratedAudioStories));
 router.post('/audio-stories/generate', rateLimitMiddleware(5, 60_000), asyncHandler(generateAudioStory));
 router.patch('/audio-stories/:id', asyncHandler(updateGeneratedAudioStory));
+
+router.get('/stories', asyncHandler(getAdminNarratedStories));
+router.post('/stories/check-duplicate', asyncHandler(checkNarratedStoryDuplicate));
+router.post('/stories/import', rateLimitMiddleware(5, 60_000), asyncHandler(bulkImportNarratedStories));
+router.post('/stories', rateLimitMiddleware(10, 60_000), storyAudioUpload.single('audio'), asyncHandler(createNarratedStory));
+router.put('/stories/:id', asyncHandler(updateNarratedStory));
+router.delete('/stories/:id', asyncHandler(deleteNarratedStory));
 
 router.get('/config', asyncHandler(getConfig));
 router.put('/config', asyncHandler(updateConfig));

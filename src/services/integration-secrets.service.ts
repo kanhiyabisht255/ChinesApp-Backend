@@ -12,7 +12,10 @@ type SecretName =
   | 'RAZORPAY_KEY_SECRET'
   | 'YOUBOT_API_KEY'
   | 'GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON'
-  | 'GOOGLE_DRIVE_FOLDER_ID';
+  | 'GOOGLE_DRIVE_FOLDER_ID'
+  | 'CLOUDINARY_CLOUD_NAME'
+  | 'CLOUDINARY_API_KEY'
+  | 'CLOUDINARY_API_SECRET';
 
 export type IntegrationSecretUpdates = Partial<Record<SecretName, string | null>>;
 
@@ -112,6 +115,9 @@ export const getIntegrationSecretStatus = async () => {
     'YOUBOT_API_KEY',
     'GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON',
     'GOOGLE_DRIVE_FOLDER_ID',
+    'CLOUDINARY_CLOUD_NAME',
+    'CLOUDINARY_API_KEY',
+    'CLOUDINARY_API_SECRET',
   ];
   const secrets = await loadSecrets();
   return Object.fromEntries(names.map(name => {

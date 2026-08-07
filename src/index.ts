@@ -25,6 +25,7 @@ import readingRoutes from './routes/reading.routes';
 import learningRoutes from './routes/learning.routes';
 import listeningRoutes from './routes/listening.routes';
 import rewardRoutes from './routes/reward.routes';
+import narratedStoryRoutes from './routes/narrated-story.routes';
 import { setupVoiceSocket } from './sockets/voice.socket';
 import { validateEnvironment } from './config/environment';
 import { syncVocabulary } from './services/vocabulary.service';
@@ -84,6 +85,7 @@ app.use('/api/reading', readingRoutes);
 app.use('/api/learning', learningRoutes);
 app.use('/api/listening', listeningRoutes);
 app.use('/api/rewards', rewardRoutes);
+app.use('/api/stories', narratedStoryRoutes);
 
 app.get('/', (req, res) => {
   res.json({
@@ -97,6 +99,7 @@ app.get('/', (req, res) => {
       courses: '/api/courses',
       scenarios: '/api/scenarios',
       reading: '/api/reading/stories',
+      stories: '/api/stories',
       listening: '/api/listening/lessons',
       todayPlan: '/api/learning/today',
       payment: '/api/payment',
