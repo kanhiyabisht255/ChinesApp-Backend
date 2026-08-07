@@ -481,6 +481,7 @@ export interface AIVoiceResponse {
 }
 
 export interface AppConfig {
+  monetizationPolicyVersion: number;
   minAppVersion: string;
   forceUpdate: boolean;
   maintenanceMode: boolean;

@@ -1,7 +1,10 @@
 import type { AppConfig } from '../types';
 import { AppSetting } from '../models';
 
+const MONETIZATION_POLICY_VERSION = 2;
+
 const DEFAULT_CONFIG: AppConfig = {
+  monetizationPolicyVersion: MONETIZATION_POLICY_VERSION,
   minAppVersion: '1.0.0',
   forceUpdate: false,
   maintenanceMode: false,
@@ -35,10 +38,10 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   ads: {
     enabled: true,
-    bannerEnabled: true,
-    interstitialEnabled: true,
-    rewardedEnabled: false,
-    interstitialCooldownSeconds: 180,
+    bannerEnabled: false,
+    interstitialEnabled: false,
+    rewardedEnabled: true,
+    interstitialCooldownSeconds: 600,
     bannerAdUnitId: '',
     interstitialAdUnitId: '',
     rewardedAdUnitId: '',
@@ -69,7 +72,32 @@ export const getAppConfig = async (): Promise<AppConfig> => {
 
   try {
     const setting = await AppSetting.findOne({ key: 'app-config' }).lean();
-    cachedConfig = mergeConfig(DEFAULT_CONFIG, (setting?.value || {}) as Partial<AppConfig>);
+    const stored = (setting?.value || {}) as Partial<AppConfig>;
+    const storedPolicyVersion = Number(stored.monetizationPolicyVersion || 0);
+    cachedConfig = mergeConfig(DEFAULT_CONFIG, stored);
+
+    // Apply the product monetization policy once to existing installations. After
+    // migration, Admin changes remain authoritative and are not overwritten.
+    if (storedPolicyVersion < MONETIZATION_POLICY_VERSION) {
+      cachedConfig = mergeConfig(cachedConfig, {
+        monetizationPolicyVersion: MONETIZATION_POLICY_VERSION,
+        ads: {
+          ...cachedConfig.ads,
+          bannerEnabled: false,
+          interstitialEnabled: false,
+          rewardedEnabled: true,
+          interstitialCooldownSeconds: 600,
+          maxRewardedAdsPerDay: 3,
+          contentUnlockHours: 24,
+          rewardedContentTypes: ['lesson', 'reading', 'listening', 'vocabulary'],
+        },
+      });
+      await AppSetting.findOneAndUpdate(
+        { key: 'app-config' },
+        { $set: { value: cachedConfig } },
+        { upsert: true, new: true },
+      );
+    }
   } catch (error) {
     console.error('App config database error:', error);
   }
@@ -82,6 +110,7 @@ export const updateLocalConfig = async (updates: Partial<AppConfig>): Promise<Ap
   const merged = mergeConfig(current, updates);
   cachedConfig = {
     ...merged,
+    monetizationPolicyVersion: MONETIZATION_POLICY_VERSION,
     minAppVersion: /^\d+\.\d+\.\d+$/.test(merged.minAppVersion) ? merged.minAppVersion : current.minAppVersion,
     supportEmail: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(merged.supportEmail || ''))
       ? String(merged.supportEmail).trim().slice(0, 200)
@@ -126,7 +155,7 @@ export const updateLocalConfig = async (updates: Partial<AppConfig>): Promise<Ap
       voiceTurnsPerReward: Math.max(1, Math.min(Math.round(Number(merged.ads.voiceTurnsPerReward) || current.ads.voiceTurnsPerReward), 20)),
       rewardedContentTypes: [...new Set(
         (Array.isArray(merged.ads.rewardedContentTypes) ? merged.ads.rewardedContentTypes : current.ads.rewardedContentTypes)
-          .filter(type => ['lesson', 'reading', 'listening', 'vocabulary', 'scenario'].includes(type)),
+          .filter(type => ['lesson', 'reading', 'listening', 'vocabulary'].includes(type)),
       )] as AppConfig['ads']['rewardedContentTypes'],
     },
   };
