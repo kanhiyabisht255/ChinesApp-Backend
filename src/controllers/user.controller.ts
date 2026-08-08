@@ -308,12 +308,17 @@ export const purchaseAiCredit = async (req: Request, res: Response): Promise<voi
   try {
     await dbSession.withTransaction(async () => {
       const usage = await AIUsage.findOne({ userId: authReq.userId, date }).session(dbSession);
-      const talkQuotaUsed = creditType === 'talkMinute' && usage && (
-        Number(usage.voiceCalls || 0) >= config.monetization.freeVoiceCallsPerDay
-        || Number(usage.voiceTurns || 0) >= config.monetization.freeVoiceTurnsPerDay
-        || Number(usage.voiceSeconds || 0) >= (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60
+      const activeTalk = creditType === 'talkMinute'
+        ? await CallSession.findOne({ userId: authReq.userId, status: 'started' }).select('createdAt').session(dbSession).lean()
+        : null;
+      const activeTalkQuotaUsed = Boolean(activeTalk && Date.now() - new Date(activeTalk.createdAt).getTime() >= (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60 * 1000);
+      const talkQuotaUsed = creditType === 'talkMinute' && (
+        Number(usage?.voiceCalls || 0) >= config.monetization.freeVoiceCallsPerDay
+        || Number(usage?.voiceTurns || 0) >= config.monetization.freeVoiceTurnsPerDay
+        || Number(usage?.voiceSeconds || 0) >= (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60
+        || activeTalkQuotaUsed
       );
-      if (!usage || (creditType === 'talkMinute' ? !talkQuotaUsed : Number(usage[offer.field!] || 0) <= 0)) {
+      if ((!usage && !activeTalkQuotaUsed) || (creditType === 'talkMinute' ? !talkQuotaUsed : Number(usage?.[offer.field!] || 0) <= 0)) {
         failure = 'quota_available';
         return;
       }
@@ -326,9 +331,14 @@ export const purchaseAiCredit = async (req: Request, res: Response): Promise<voi
         failure = 'insufficient_gems';
         return;
       }
+      const usageRecord = usage || await AIUsage.findOneAndUpdate(
+        { userId: authReq.userId, date },
+        { $setOnInsert: { voiceCalls: 0, voiceTurns: 0, chatMessages: 0, voiceSeconds: 0 } },
+        { upsert: true, new: true, session: dbSession },
+      );
       if (creditType === 'talkMinute') {
         await AIUsage.updateOne(
-          { _id: usage._id },
+          { _id: usageRecord?._id },
           {
             $inc: {
               voiceSeconds: -60,
@@ -340,7 +350,7 @@ export const purchaseAiCredit = async (req: Request, res: Response): Promise<voi
         );
       } else {
         await AIUsage.updateOne(
-          { _id: usage._id, [offer.field!]: { $gt: 0 } },
+          { _id: usageRecord?._id, [offer.field!]: { $gt: 0 } },
           { $inc: { [offer.field!]: -1 } },
           { session: dbSession },
         );
