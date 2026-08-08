@@ -7,6 +7,7 @@ import {
   processVoiceAction,
   endVoiceCall,
   getChatMessages,
+  synthesizeChatSpeech,
   sendChatMessage,
   clearChat,
   getChatReport,
@@ -52,6 +53,7 @@ router.post('/realtime/finish', auth, feature('voiceCallEnabled'), asyncHandler(
 
 router.get('/chat', auth, feature('chatEnabled'), asyncHandler(getChatMessages));
 router.post('/chat', auth, feature('chatEnabled'), asyncHandler(sendChatMessage));
+router.post('/chat/tts', auth, feature('chatEnabled'), asyncHandler(synthesizeChatSpeech));
 router.delete('/chat', auth, feature('chatEnabled'), asyncHandler(clearChat));
 router.get('/chat/report', auth, feature('chatEnabled'), asyncHandler(getChatReport));
 router.get('/mistakes', auth, asyncHandler(getMistakeMemory));

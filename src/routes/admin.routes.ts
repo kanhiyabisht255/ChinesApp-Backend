@@ -62,6 +62,7 @@ import {
   getAIProviders,
   upsertAIProvider,
   removeAIProvider,
+  testAIProviderConnection,
   getAIUsageStats,
   getUserMistakes,
 } from '../controllers/admin.controller';
@@ -139,6 +140,7 @@ router.get('/integrations', asyncHandler(getIntegrations));
 router.put('/integrations', asyncHandler(updateIntegrations));
 router.get('/ai/providers', asyncHandler(getAIProviders));
 router.post('/ai/providers', asyncHandler(upsertAIProvider));
+router.post('/ai/providers/:id/test', asyncHandler(testAIProviderConnection));
 router.delete('/ai/providers/:id', asyncHandler(removeAIProvider));
 router.get('/ai/usage', asyncHandler(getAIUsageStats));
 

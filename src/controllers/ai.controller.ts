@@ -602,6 +602,39 @@ export const getChatMessages = async (req: Request, res: Response): Promise<void
   res.json({ success: true, data: messages.reverse() });
 };
 
+export const synthesizeChatSpeech = async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const messageId = typeof req.body?.messageId === 'string' ? req.body.messageId.trim() : '';
+  if (!mongoose.isValidObjectId(messageId)) {
+    res.status(400).json({ success: false, message: 'A valid AI chat message is required' });
+    return;
+  }
+  const tutor = await buildTutorOptions(authReq.userId);
+  if (!hasActivePremium(tutor.user)) {
+    res.status(403).json({ success: false, message: 'Premium is required for server-quality tutor voice', code: 'PREMIUM_REQUIRED' });
+    return;
+  }
+  try {
+    const { AIUsageEvent, ChatMessage } = await import('../models');
+    const message = await ChatMessage.findOne({ _id: messageId, userId: authReq.userId, role: 'ai' }).lean();
+    if (!message?.content) {
+      res.status(404).json({ success: false, message: 'AI chat message not found' });
+      return;
+    }
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const generatedToday = await AIUsageEvent.countDocuments({ userId: authReq.userId, feature: 'talk_tts', createdAt: { $gte: today } });
+    if (generatedToday >= 100) {
+      res.status(429).json({ success: false, message: 'Daily Premium voice allowance reached', code: 'AI_TTS_LIMIT' });
+      return;
+    }
+    const audio = await generateSpeech(message.content.slice(0, 1200), { ...tutor.options, isPremium: true });
+    res.json({ success: true, data: { audioBase64: audio.toString('base64'), mimeType: 'audio/mpeg' } });
+  } catch (error) {
+    sendAIError(res, error, 'Tutor audio is temporarily unavailable');
+  }
+};
+
 export const sendChatMessage = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
   const { message } = req.body;

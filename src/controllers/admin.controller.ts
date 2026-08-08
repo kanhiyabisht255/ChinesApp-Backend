@@ -32,6 +32,7 @@ import {
 } from '../services/integration-secrets.service';
 import { deleteAIProvider, listAIProviders, providerSecretConfigured, saveAIProvider } from '../services/ai-provider.service';
 import { getMistakes } from '../services/mistake-memory.service';
+import { testAIProvider, type AIProviderTestCapability } from '../services/ai-provider-test.service';
 
 const slugify = (value: string): string => value
   .toLowerCase()
@@ -653,6 +654,22 @@ export const upsertAIProvider = async (req: Request, res: Response): Promise<voi
 export const removeAIProvider = async (req: Request, res: Response): Promise<void> => {
   await deleteAIProvider(String(req.params.id));
   res.json({ success: true, message: 'AI provider removed' });
+};
+
+export const testAIProviderConnection = async (req: Request, res: Response): Promise<void> => {
+  const capability = String(req.body?.capability || 'chat') as AIProviderTestCapability;
+  const allowed: AIProviderTestCapability[] = ['chat', 'talk_response', 'talk_transcription', 'talk_tts', 'talk_realtime'];
+  if (!allowed.includes(capability)) {
+    res.status(400).json({ success: false, message: 'Unsupported AI provider test capability' });
+    return;
+  }
+  try {
+    const result = await testAIProvider(String(req.params.id), capability);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'AI provider test failed';
+    res.status(502).json({ success: false, message });
+  }
 };
 
 export const getAIUsageStats = async (req: Request, res: Response): Promise<void> => {
