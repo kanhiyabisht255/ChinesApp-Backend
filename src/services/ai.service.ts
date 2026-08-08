@@ -100,7 +100,8 @@ export const generateAIResponse = async (
       { role: 'user', content: userMessage },
     ];
     
-    const candidates = await selectAIProviders('chat');
+    const capability = options.isVoiceCall ? 'talk_response' : 'chat';
+    const candidates = await selectAIProviders(capability);
     const providers = candidates.length ? [...candidates, null] : [null];
     let responseText = '';
     let usage = { inputTokens: 0, outputTokens: 0 };
