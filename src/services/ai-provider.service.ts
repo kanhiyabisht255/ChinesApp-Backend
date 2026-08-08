@@ -55,7 +55,7 @@ const DEFAULT_PROVIDERS: AIProviderConfig[] = [
     secretName: 'BLUESMINDS_API_KEY',
     chatModel: 'gpt-4o-mini',
     capabilities: ['chat', 'talk_response'],
-    priority: 15,
+    priority: 5,
     enabled: false,
     dailyBudgetUsd: 0,
     monthlyBudgetUsd: 0,
