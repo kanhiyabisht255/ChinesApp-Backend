@@ -63,6 +63,7 @@ import {
   upsertAIProvider,
   removeAIProvider,
   getAIUsageStats,
+  getUserMistakes,
 } from '../controllers/admin.controller';
 
 const router = Router();
@@ -85,6 +86,7 @@ router.put('/users/:id', asyncHandler(updateUser));
 router.delete('/users/:id', asyncHandler(deleteUser));
 router.get('/users/:id/progress', asyncHandler(getUserProgress));
 router.get('/users/:id/calls', asyncHandler(getUserCalls));
+router.get('/users/:id/mistakes', asyncHandler(getUserMistakes));
 
 router.get('/payments', asyncHandler(getAllPayments));
 router.get('/payments/stats', asyncHandler(getPaymentStats));

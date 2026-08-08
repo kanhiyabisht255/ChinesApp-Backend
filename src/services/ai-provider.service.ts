@@ -1,4 +1,4 @@
-import { AppSetting } from '../models';
+import { AIUsageEvent, AppSetting } from '../models';
 import { getCustomIntegrationSecret, updateCustomIntegrationSecret } from './integration-secrets.service';
 
 export type AIProviderType = 'openai' | 'gemini' | 'anthropic' | 'openrouter' | 'groq' | 'custom';
@@ -17,6 +17,10 @@ export interface AIProviderConfig {
   enabled: boolean;
   dailyBudgetUsd: number;
   monthlyBudgetUsd: number;
+  inputCostPerMillionTokens: number;
+  outputCostPerMillionTokens: number;
+  inputAudioCostPerMinute: number;
+  outputAudioCostPerMinute: number;
 }
 
 const KEY = 'ai-providers';
@@ -53,6 +57,10 @@ export const saveAIProvider = async (input: Partial<AIProviderConfig> & { apiKey
     enabled: Boolean(input.enabled ?? existing?.enabled ?? true),
     dailyBudgetUsd: Math.max(0, Number(input.dailyBudgetUsd ?? existing?.dailyBudgetUsd ?? 0)),
     monthlyBudgetUsd: Math.max(0, Number(input.monthlyBudgetUsd ?? existing?.monthlyBudgetUsd ?? 0)),
+    inputCostPerMillionTokens: Math.max(0, Number(input.inputCostPerMillionTokens ?? existing?.inputCostPerMillionTokens ?? 0)),
+    outputCostPerMillionTokens: Math.max(0, Number(input.outputCostPerMillionTokens ?? existing?.outputCostPerMillionTokens ?? 0)),
+    inputAudioCostPerMinute: Math.max(0, Number(input.inputAudioCostPerMinute ?? existing?.inputAudioCostPerMinute ?? 0)),
+    outputAudioCostPerMinute: Math.max(0, Number(input.outputAudioCostPerMinute ?? existing?.outputAudioCostPerMinute ?? 0)),
   };
   if (input.apiKey?.trim()) await updateCustomIntegrationSecret(provider.secretName!, input.apiKey.trim());
   const next = existing ? providers.map(item => item.id === id ? provider : item) : [...providers, provider];
@@ -69,9 +77,32 @@ export const deleteAIProvider = async (id: string) => {
 
 export const providerSecretConfigured = async (provider: AIProviderConfig) => Boolean(provider.secretName && await getCustomIntegrationSecret(provider.secretName));
 
-export const selectAIProvider = async (capability: string): Promise<(AIProviderConfig & { apiKey?: string }) | null> => {
+export const selectAIProviders = async (capability: string): Promise<Array<AIProviderConfig & { apiKey?: string }>> => {
   const providers = (await listAIProviders()).filter(provider => provider.enabled && provider.capabilities.includes(capability)).sort((a, b) => a.priority - b.priority);
-  const provider = providers[0];
-  if (!provider) return null;
-  return { ...provider, apiKey: provider.secretName ? await getCustomIntegrationSecret(provider.secretName) : undefined };
+  const now = new Date();
+  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const available: Array<AIProviderConfig & { apiKey?: string }> = [];
+  for (const provider of providers) {
+    const [day, month] = await Promise.all([
+      AIUsageEvent.aggregate([{ $match: { provider: provider.id, createdAt: { $gte: dayStart } } }, { $group: { _id: null, cost: { $sum: '$estimatedCostUsd' } } }]),
+      AIUsageEvent.aggregate([{ $match: { provider: provider.id, createdAt: { $gte: monthStart } } }, { $group: { _id: null, cost: { $sum: '$estimatedCostUsd' } } }]),
+    ]);
+    if (provider.dailyBudgetUsd > 0 && Number(day[0]?.cost || 0) >= provider.dailyBudgetUsd) continue;
+    if (provider.monthlyBudgetUsd > 0 && Number(month[0]?.cost || 0) >= provider.monthlyBudgetUsd) continue;
+    available.push({ ...provider, apiKey: provider.secretName ? await getCustomIntegrationSecret(provider.secretName) : undefined });
+  }
+  return available;
+};
+
+export const selectAIProvider = async (capability: string): Promise<(AIProviderConfig & { apiKey?: string }) | null> => (await selectAIProviders(capability))[0] || null;
+
+export const estimateProviderCost = (provider: Partial<AIProviderConfig> | null, usage: { inputTokens?: number; outputTokens?: number; inputAudioSeconds?: number; outputAudioSeconds?: number }): number => {
+  if (!provider) return 0;
+  return Number((
+    (usage.inputTokens || 0) / 1_000_000 * (provider.inputCostPerMillionTokens || 0) +
+    (usage.outputTokens || 0) / 1_000_000 * (provider.outputCostPerMillionTokens || 0) +
+    (usage.inputAudioSeconds || 0) / 60 * (provider.inputAudioCostPerMinute || 0) +
+    (usage.outputAudioSeconds || 0) / 60 * (provider.outputAudioCostPerMinute || 0)
+  ).toFixed(8));
 };

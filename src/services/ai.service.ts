@@ -2,7 +2,8 @@ import OpenAI, { toFile } from 'openai';
 import { getLanguageName, normalizeLanguageCode } from './localization.service';
 import { getAppConfig } from './config.service';
 import { getIntegrationSecret } from './integration-secrets.service';
-import { selectAIProvider } from './ai-provider.service';
+import { estimateProviderCost, selectAIProvider, selectAIProviders, type AIProviderConfig } from './ai-provider.service';
+import { recordAiUsageEvent } from './ai-usage.service';
 
 let openaiClient: OpenAI | null = null;
 let openaiClientKey = '';
@@ -19,9 +20,10 @@ export class AIServiceError extends Error {
   }
 }
 
-const getOpenAI = async (capability = 'chat'): Promise<{ client: OpenAI; model?: string }> => {
-  const selected = await selectAIProvider(capability);
-  const routed = selected && ['openai', 'openrouter', 'groq', 'custom'].includes(selected.type) ? selected : null;
+const getOpenAI = async (capability = 'chat', selected?: (AIProviderConfig & { apiKey?: string }) | null): Promise<{ client: OpenAI; model?: string; provider: AIProviderConfig | null }> => {
+  const selectedProvider = selected === undefined ? await selectAIProvider(capability) : selected;
+  const selectedCompatible = selectedProvider && ['openai', 'openrouter', 'groq', 'custom'].includes(selectedProvider.type) ? selectedProvider : null;
+  const routed = selectedCompatible;
   const apiKey = routed?.apiKey || await getIntegrationSecret('OPENAI_API_KEY');
   if (!apiKey || apiKey.startsWith('sk-your-')) {
     throw new AIServiceError('AI tutor is not configured yet');
@@ -38,7 +40,7 @@ const getOpenAI = async (capability = 'chat'): Promise<{ client: OpenAI; model?:
     openaiClientKey = cacheKey;
   }
   const model = capability === 'talk_transcription' ? routed?.transcriptionModel : capability === 'talk_tts' ? routed?.ttsModel : capability === 'talk_realtime' ? routed?.realtimeModel : routed?.chatModel;
-  return { client: openaiClient, model };
+  return { client: openaiClient, model, provider: routed };
 };
 
 export interface TutorOptions {
@@ -47,6 +49,9 @@ export interface TutorOptions {
   hskLevel?: number;
   learningGoal?: string;
   scenarioPrompt?: string;
+  userId?: string;
+  isPremium?: boolean;
+  inputAudioSeconds?: number;
 }
 
 const buildChineseSystemPrompt = (options: TutorOptions): string => {
@@ -86,7 +91,7 @@ export const generateAIResponse = async (
 ): Promise<{ chinese: string; pinyin: string; english: string; correction?: string; feedback?: string }> => {
   try {
     const appConfig = await getAppConfig();
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: buildChineseSystemPrompt(options) },
       ...context.map((msg, i) => ({
         role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
@@ -95,20 +100,58 @@ export const generateAIResponse = async (
       { role: 'user', content: userMessage },
     ];
     
-    const routed = await getOpenAI('chat');
-    const completion = await routed.client.chat.completions.create({
-      model: routed.model || appConfig.aiConfig.model,
-      messages,
-      max_tokens: options.isVoiceCall
-        ? Math.min(appConfig.aiConfig.maxTokens, 180)
-        : Math.min(appConfig.aiConfig.maxTokens, 400),
-      temperature: Math.max(0, Math.min(appConfig.aiConfig.temperature, 1)),
-      response_format: { type: 'json_object' },
-    });
-    
-    const responseText = completion.choices[0]?.message?.content;
+    const candidates = await selectAIProviders('chat');
+    const providers = candidates.length ? [...candidates, null] : [null];
+    let responseText = '';
+    let usage = { inputTokens: 0, outputTokens: 0 };
+    let provider: AIProviderConfig | null = null;
+    let model = appConfig.aiConfig.model;
+    let lastError: unknown;
+    for (const candidate of providers) {
+      try {
+        if (candidate?.type === 'gemini') {
+          const key = candidate.apiKey;
+          if (!key) throw new AIServiceError('Gemini provider key is missing');
+          model = candidate.chatModel || appConfig.aiConfig.model;
+          const base = candidate.baseUrl || 'https://generativelanguage.googleapis.com/v1beta';
+          const response = await fetch(`${base}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ systemInstruction: { parts: [{ text: messages[0].content }] }, contents: messages.slice(1).map(item => ({ role: item.role === 'assistant' ? 'model' : 'user', parts: [{ text: item.content }] })), generationConfig: { maxOutputTokens: options.isVoiceCall ? Math.min(appConfig.aiConfig.maxTokens, 180) : Math.min(appConfig.aiConfig.maxTokens, 400), temperature: appConfig.aiConfig.temperature, responseMimeType: 'application/json' } }) });
+          const payload = await response.json() as any;
+          if (!response.ok) throw new Error(payload?.error?.message || 'Gemini request failed');
+          responseText = payload?.candidates?.[0]?.content?.parts?.map((part: any) => part.text || '').join('') || '';
+          usage = { inputTokens: Number(payload?.usageMetadata?.promptTokenCount || 0), outputTokens: Number(payload?.usageMetadata?.candidatesTokenCount || 0) };
+          provider = candidate;
+          break;
+        }
+        if (candidate?.type === 'anthropic') {
+          const key = candidate.apiKey;
+          if (!key) throw new AIServiceError('Anthropic provider key is missing');
+          model = candidate.chatModel || 'claude-3-5-haiku-latest';
+          const base = candidate.baseUrl || 'https://api.anthropic.com';
+          const response = await fetch(`${base}/v1/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model, system: messages[0].content, messages: messages.slice(1), max_tokens: options.isVoiceCall ? Math.min(appConfig.aiConfig.maxTokens, 180) : Math.min(appConfig.aiConfig.maxTokens, 400), temperature: appConfig.aiConfig.temperature } ) });
+          const payload = await response.json() as any;
+          if (!response.ok) throw new Error(payload?.error?.message || 'Anthropic request failed');
+          responseText = payload?.content?.map((part: any) => part.text || '').join('') || '';
+          usage = { inputTokens: Number(payload?.usage?.input_tokens || 0), outputTokens: Number(payload?.usage?.output_tokens || 0) };
+          provider = candidate;
+          break;
+        }
+        const routed = await getOpenAI('chat', candidate);
+        model = routed.model || appConfig.aiConfig.model;
+        const completion = await routed.client.chat.completions.create({ model, messages, max_tokens: options.isVoiceCall ? Math.min(appConfig.aiConfig.maxTokens, 180) : Math.min(appConfig.aiConfig.maxTokens, 400), temperature: Math.max(0, Math.min(appConfig.aiConfig.temperature, 1)), response_format: { type: 'json_object' } });
+        responseText = completion.choices[0]?.message?.content || '';
+        usage = { inputTokens: Number(completion.usage?.prompt_tokens || 0), outputTokens: Number(completion.usage?.completion_tokens || 0) };
+        provider = routed.provider;
+        break;
+      } catch (error) {
+        lastError = error;
+        console.error('AI provider failed, trying fallback:', error);
+      }
+    }
+    if (!responseText && lastError) throw lastError;
     if (!responseText) throw new AIServiceError('AI tutor returned an empty response', 'AI_EMPTY_RESPONSE');
-    return parseAIResponse(responseText);
+    const parsed = parseAIResponse(responseText);
+    await recordAiUsageEvent({ userId: options.userId, premium: Boolean(options.isPremium), feature: options.isVoiceCall ? 'talk_response' : 'chat', provider: provider?.id || 'openai', model, status: 'success', inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, estimatedCostUsd: estimateProviderCost(provider, usage), metadata: { adapter: provider?.type || 'openai' } });
+    return parsed;
   } catch (error) {
     console.error('OpenAI Error:', error);
     if (error instanceof AIServiceError) throw error;
@@ -157,6 +200,7 @@ export const transcribeAudio = async (
 
     const text = transcription.text?.trim();
     if (!text) throw new AIServiceError('No speech was detected', 'NO_SPEECH', 422);
+    await recordAiUsageEvent({ userId: options.userId, premium: Boolean(options.isPremium), feature: 'talk_transcription', provider: routed.provider?.id || 'openai', model: routed.model || appConfig.aiConfig.transcriptionModel, status: 'success', inputAudioSeconds: options.inputAudioSeconds || 0, estimatedCostUsd: estimateProviderCost(routed.provider, { inputAudioSeconds: options.inputAudioSeconds || 0 }), metadata: { adapter: routed.provider?.type || 'openai' } });
     return text;
   } catch (error) {
     console.error('Transcription Error:', error);
@@ -165,7 +209,7 @@ export const transcribeAudio = async (
   }
 };
 
-export const generateSpeech = async (text: string): Promise<Buffer> => {
+export const generateSpeech = async (text: string, options: TutorOptions = {}): Promise<Buffer> => {
   try {
     const appConfig = await getAppConfig();
     const routed = await getOpenAI('talk_tts');
@@ -179,6 +223,7 @@ export const generateSpeech = async (text: string): Promise<Buffer> => {
     });
     
     const buffer = Buffer.from(await response.arrayBuffer());
+    await recordAiUsageEvent({ userId: options.userId, premium: Boolean(options.isPremium), feature: 'talk_tts', provider: routed.provider?.id || 'openai', model: routed.model || appConfig.aiConfig.ttsModel, status: 'success', outputAudioSeconds: Math.max(1, Math.ceil(text.length / 5)), estimatedCostUsd: estimateProviderCost(routed.provider, { outputAudioSeconds: Math.max(1, Math.ceil(text.length / 5)) }), metadata: { adapter: routed.provider?.type || 'openai' } });
     return buffer;
   } catch (error) {
     console.error('TTS Error:', error);

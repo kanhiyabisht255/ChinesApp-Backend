@@ -10,8 +10,10 @@ import {
   sendChatMessage,
   clearChat,
   getChatReport,
+  getMistakeMemory,
   getAiUsageSummary,
   createRealtimeToken,
+  finishRealtimeSession,
 } from '../controllers/ai.controller';
 import { authMiddleware, rateLimitMiddleware } from '../middleware/auth';
 import { getAppConfig } from '../services/config.service';
@@ -46,10 +48,12 @@ router.post('/voice/action', auth, feature('voiceCallEnabled'), asyncHandler(pro
 router.post('/voice/end', auth, feature('voiceCallEnabled'), asyncHandler(endVoiceCall));
 router.get('/usage', auth, asyncHandler(getAiUsageSummary));
 router.post('/realtime/token', auth, feature('voiceCallEnabled'), asyncHandler(createRealtimeToken));
+router.post('/realtime/finish', auth, feature('voiceCallEnabled'), asyncHandler(finishRealtimeSession));
 
 router.get('/chat', auth, feature('chatEnabled'), asyncHandler(getChatMessages));
 router.post('/chat', auth, feature('chatEnabled'), asyncHandler(sendChatMessage));
 router.delete('/chat', auth, feature('chatEnabled'), asyncHandler(clearChat));
 router.get('/chat/report', auth, feature('chatEnabled'), asyncHandler(getChatReport));
+router.get('/mistakes', auth, asyncHandler(getMistakeMemory));
 
 export default router;

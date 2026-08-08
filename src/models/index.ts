@@ -608,5 +608,17 @@ const aiUsageEventSchema = new Schema({
 }, { timestamps: true });
 aiUsageEventSchema.index({ createdAt: -1 });
 export const AIUsageEvent = mongoose.model('AIUsageEvent', aiUsageEventSchema);
+const mistakeMemorySchema = new Schema({
+  userId: { type: String, required: true, index: true },
+  normalized: { type: String, required: true },
+  original: { type: String, required: true },
+  correction: { type: String, required: true },
+  explanation: { type: String, default: '' },
+  count: { type: Number, default: 0 },
+  lastSeenAt: { type: Date, default: Date.now },
+  nextReviewAt: { type: Date, default: Date.now, index: true },
+}, { timestamps: true });
+mistakeMemorySchema.index({ userId: 1, normalized: 1 }, { unique: true });
+export const MistakeMemory = mongoose.model('MistakeMemory', mistakeMemorySchema);
 export const RewardGrant = mongoose.model('RewardGrant', rewardGrantSchema);
 export const EmailVerificationCode = mongoose.model('EmailVerificationCode', emailVerificationCodeSchema);

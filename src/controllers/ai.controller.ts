@@ -6,17 +6,19 @@ import {
   transcribeAudio,
   generateSpeech,
 } from '../services/ai.service';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import mongoose from 'mongoose';
 import { User, Progress, CallSession, Scenario } from '../models';
 import type { AuthRequest, ITranscriptItem } from '../types';
 import { consumeAiQuota, hasActivePremium, refundAiQuota, getAiUsage, recordAiMinutes } from '../services/entitlement.service';
-import { recordAiUsageEvent } from '../services/ai-usage.service';
 import { getAppConfig } from '../services/config.service';
 import { getIntegrationSecret } from '../services/integration-secrets.service';
+import { estimateProviderCost, selectAIProvider } from '../services/ai-provider.service';
+import { recordAiUsageEvent } from '../services/ai-usage.service';
 import { localWeekdayIndex, localWeekKey, normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
 import { buildVoiceCallContext, buildVoiceCallReport, type VoiceCallReport } from '../services/voice-session.service';
 import { hasContentAccess } from '../services/reward.service';
+import { getMistakePromptContext, getMistakes, recordMistake } from '../services/mistake-memory.service';
 
 const sendAIError = (res: Response, error: unknown, fallbackMessage: string): void => {
   if (error instanceof AIServiceError) {
@@ -48,6 +50,8 @@ const buildTutorOptions = async (userId?: string, scenarioId?: string) => {
       hskLevel: user?.hskLevel || 1,
       learningGoal: user?.learningGoal || 'general',
       scenarioPrompt: scenario?.systemPrompt,
+      userId,
+      isPremium: hasActivePremium(user),
     },
   };
 };
@@ -112,7 +116,7 @@ export const startVoiceCall = async (req: Request, res: Response): Promise<void>
       const aiResponse = await generateAIResponse(openingPrompt, [], { ...tutor.options, isVoiceCall: true });
       let audioBase64: string | undefined;
       try {
-        audioBase64 = (await generateSpeech(aiResponse.chinese)).toString('base64');
+        audioBase64 = (await generateSpeech(aiResponse.chinese, tutor.options)).toString('base64');
       } catch (ttsError) {
         console.error('TTS unavailable for call opening, returning text response:', ttsError);
       }
@@ -165,7 +169,6 @@ export const startVoiceCall = async (req: Request, res: Response): Promise<void>
 
 export const processVoiceAudio = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
-  const startedAt = Date.now();
   
   if (!req.file) {
     res.status(400).json({ success: false, message: 'Audio file required' });
@@ -205,21 +208,20 @@ export const processVoiceAudio = async (req: Request, res: Response): Promise<vo
     quotaConsumed = true;
     const spokenText = await transcribeAudio(
       req.file.buffer,
-      tutor.options,
+      { ...tutor.options, inputAudioSeconds: Math.max(1, Math.ceil(req.file.size / 16000)) },
       req.file.originalname || 'practice.m4a',
       req.file.mimetype || 'audio/mp4'
     );
     const aiResponse = await generateAIResponse(spokenText, contextMessages, { ...tutor.options, isVoiceCall: true });
     let audioBase64: string | undefined;
     try {
-      audioBase64 = (await generateSpeech(aiResponse.chinese)).toString('base64');
+      audioBase64 = (await generateSpeech(aiResponse.chinese, tutor.options)).toString('base64');
     } catch (ttsError) {
       console.error('TTS unavailable, returning text response:', ttsError);
     }
     const pronunciation = expectedChinese
       ? analyzePronunciation(expectedChinese, spokenText)
       : undefined;
-    await recordAiUsageEvent({ userId: authReq.userId, premium: premiumUser, feature: 'talk_response', status: 'success', inputAudioSeconds: Math.ceil(req.file.size / 16000), outputAudioSeconds: audioBase64 ? 1 : 0, durationMs: Date.now() - startedAt });
     if (activeCall) {
       await CallSession.updateOne(
         { _id: activeCall._id, status: 'started' },
@@ -276,7 +278,6 @@ export const processVoiceAudio = async (req: Request, res: Response): Promise<vo
 
 export const processVoiceText = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
-  const startedAt = Date.now();
   const { text, context, scenarioId } = req.body;
   
   let quotaConsumed = false;
@@ -300,11 +301,10 @@ export const processVoiceText = async (req: Request, res: Response): Promise<voi
     const aiResponse = await generateAIResponse(text, contextMessages, { ...tutor.options, isVoiceCall: true });
     let audioBase64: string | undefined;
     try {
-      audioBase64 = (await generateSpeech(aiResponse.chinese)).toString('base64');
+      audioBase64 = (await generateSpeech(aiResponse.chinese, tutor.options)).toString('base64');
     } catch (ttsError) {
       console.error('TTS unavailable, returning text response:', ttsError);
     }
-    await recordAiUsageEvent({ userId: authReq.userId, premium: premiumUser, feature: 'talk_response', status: 'success', durationMs: Date.now() - startedAt, outputAudioSeconds: audioBase64 ? 1 : 0 });
     
     res.json({
       success: true,
@@ -358,7 +358,7 @@ export const processVoiceAction = async (req: Request, res: Response): Promise<v
     const aiResponse = await generateAIResponse(prompt, context, { ...tutor.options, isVoiceCall: true });
     let audioBase64: string | undefined;
     try {
-      audioBase64 = (await generateSpeech(aiResponse.chinese)).toString('base64');
+      audioBase64 = (await generateSpeech(aiResponse.chinese, tutor.options)).toString('base64');
     } catch (ttsError) {
       console.error('TTS unavailable for tutor action, returning text response:', ttsError);
     }
@@ -551,25 +551,44 @@ export const getAiUsageSummary = async (req: Request, res: Response): Promise<vo
 export const createRealtimeToken = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
   try {
-    const [user, config, apiKey] = await Promise.all([User.findById(authReq.userId).lean(), getAppConfig(), getIntegrationSecret('OPENAI_API_KEY')]);
+    const [user, config, selectedProvider] = await Promise.all([User.findById(authReq.userId).lean(), getAppConfig(), selectAIProvider('talk_realtime')]);
+    const provider = selectedProvider && ['openai', 'openrouter', 'groq', 'custom'].includes(selectedProvider.type) ? selectedProvider : null;
     if (!user) { res.status(404).json({ success: false, message: 'User not found' }); return; }
     if (!config.aiConfig.realtimeTalkEnabled) { res.status(503).json({ success: false, message: 'Live Realtime Talk is disabled' }); return; }
     if (!hasActivePremium(user)) { res.status(403).json({ success: false, message: 'Premium is required for Ling Live' }); return; }
     const usage = await getAiUsage(authReq.userId!, true);
     if (usage.talk.dailyLimitSeconds <= usage.talk.usedSecondsToday || (usage.talk.monthlyLimitSeconds != null && usage.talk.monthlyLimitSeconds <= usage.talk.usedSecondsMonth)) { res.status(429).json({ success: false, message: 'Monthly AI Talk allowance reached', code: 'AI_TALK_LIMIT' }); return; }
+    const apiKey = provider?.apiKey || await getIntegrationSecret('OPENAI_API_KEY');
     if (!apiKey) { res.status(503).json({ success: false, message: 'Realtime provider is not configured' }); return; }
-    const upstream = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
+    const model = provider?.realtimeModel || 'gpt-realtime-2.1';
+    const scenario = await findScenario(typeof req.body?.scenarioId === 'string' ? req.body.scenarioId : undefined);
+    const safetyIdentifier = createHash('sha256').update(`chinesapp:${authReq.userId}`).digest('hex');
+    const baseUrl = (provider?.baseUrl || 'https://api.openai.com').replace(/\/v1\/?$/, '');
+    const upstream = await fetch(`${baseUrl}/v1/realtime/client_secrets`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session: { type: 'realtime', model: config.aiConfig.realtimeTalkEnabled ? 'gpt-4o-realtime-preview' : 'gpt-4o-mini-realtime-preview', modalities: ['audio', 'text'], instructions: 'You are Ling, a concise Mandarin Chinese tutor. Correct gently after several turns.' } }),
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'OpenAI-Safety-Identifier': safetyIdentifier },
+      body: JSON.stringify({ session: { type: 'realtime', model, audio: { input: { transcription: { model: 'gpt-4o-mini-transcribe', language: 'zh' } }, output: { voice: config.aiConfig.ttsVoice || 'marin' } }, instructions: `You are Ling, a warm Mandarin tutor. Speak in short HSK-level Chinese sentences. Provide gentle coaching after several turns, not after every turn.${scenario?.systemPrompt ? ` Scenario: ${scenario.systemPrompt}` : ''}` } }),
     });
     const payload = await upstream.json() as Record<string, unknown>;
     if (!upstream.ok) { res.status(502).json({ success: false, message: 'Realtime provider rejected the session' }); return; }
-    res.json({ success: true, data: { clientSecret: (payload.value as string) || (payload.client_secret as string), expiresAt: payload.expires_at } });
+    res.json({ success: true, data: { clientSecret: (payload.value as string) || (payload.client_secret as string), expiresAt: payload.expires_at, model, endpoint: `${baseUrl}/v1/realtime/calls` } });
   } catch (error) {
     console.error('Realtime token error:', error);
     sendAIError(res, error, 'Unable to start Ling Live');
   }
+};
+
+export const finishRealtimeSession = async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const user = await User.findById(authReq.userId).lean();
+  if (!user || !hasActivePremium(user)) { res.status(403).json({ success: false, message: 'Premium is required for Ling Live' }); return; }
+  const config = await getAppConfig();
+  const seconds = Math.max(0, Math.min(Number(req.body?.seconds) || 0, (config.aiConfig.premiumTalkMinutesPerSession || 15) * 60));
+  const selectedProvider = await selectAIProvider('talk_realtime');
+  const provider = selectedProvider && ['openai', 'openrouter', 'groq', 'custom'].includes(selectedProvider.type) ? selectedProvider : null;
+  await recordAiMinutes(authReq.userId!, seconds);
+  await recordAiUsageEvent({ userId: authReq.userId, premium: true, feature: 'talk_realtime', provider: provider?.id || 'openai', model: provider?.realtimeModel || 'gpt-realtime-2.1', status: 'success', inputAudioSeconds: seconds, outputAudioSeconds: Math.max(0, Number(req.body?.outputSeconds) || 0), estimatedCostUsd: estimateProviderCost(provider, { inputAudioSeconds: seconds, outputAudioSeconds: Math.max(0, Number(req.body?.outputSeconds) || 0) }) });
+  res.json({ success: true, data: await getAiUsage(authReq.userId!, true) });
 };
 
 export const getChatMessages = async (req: Request, res: Response): Promise<void> => {
@@ -585,7 +604,6 @@ export const getChatMessages = async (req: Request, res: Response): Promise<void
 
 export const sendChatMessage = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
-  const startedAt = Date.now();
   const { message } = req.body;
   
   if (typeof message !== 'string' || message.trim().length === 0 || message.length > 2000) {
@@ -598,6 +616,7 @@ export const sendChatMessage = async (req: Request, res: Response): Promise<void
   let premiumUser = false;
   try {
     const tutor = await buildTutorOptions(authReq.userId);
+    const mistakeContext = await getMistakePromptContext(authReq.userId!, 5);
     premiumUser = hasActivePremium(tutor.user);
     const quota = await consumeAiQuota(authReq.userId, 'chatMessages', premiumUser);
     if (!quota.allowed) {
@@ -610,7 +629,10 @@ export const sendChatMessage = async (req: Request, res: Response): Promise<void
       .limit(10)
       .lean();
     const context = recentMessages.reverse().map(item => item.content);
-    const aiResponse = await generateAIResponse(message.trim(), context, tutor.options);
+    const aiResponse = await generateAIResponse(message.trim(), context, {
+      ...tutor.options,
+      scenarioPrompt: [tutor.options.scenarioPrompt, mistakeContext].filter(Boolean).join('\n'),
+    });
 
     await ChatMessage.create({
       userId: authReq.userId,
@@ -627,7 +649,7 @@ export const sendChatMessage = async (req: Request, res: Response): Promise<void
       correction: aiResponse.correction,
       feedback: aiResponse.feedback,
     });
-    await recordAiUsageEvent({ userId: authReq.userId, premium: premiumUser, feature: 'chat', status: 'success', durationMs: Date.now() - startedAt });
+    if (aiResponse.correction) await recordMistake(authReq.userId!, message.trim(), aiResponse.correction, aiResponse.feedback);
 
     res.json({
       success: true,
@@ -661,7 +683,13 @@ export const getChatReport = async (req: Request, res: Response): Promise<void> 
   const authReq = req as AuthRequest;
   const { ChatMessage } = await import('../models');
   const messages = await ChatMessage.find({ userId: authReq.userId }).sort({ createdAt: -1 }).limit(60).lean();
-  const corrections = messages.map(message => message.correction).filter((value): value is string => Boolean(value)).slice(0, 3);
+  const storedMistakes = await getMistakes(authReq.userId!, 10);
+  const corrections = storedMistakes.slice(0, 3).map(item => `${item.original} -> ${item.correction}`);
   const words = messages.flatMap(message => String(message.content || '').match(/[\u4e00-\u9fff]{2,6}/g) || []).filter((word, index, all) => all.indexOf(word) === index).slice(0, 5);
-  res.json({ success: true, data: { corrections, newWords: words, grammarWeakness: corrections.length ? 'Review the corrections above and reuse each sentence.' : 'Keep practicing complete Chinese sentences.', nextPractice: corrections.length ? 'Try a role-play using your corrected sentences.' : 'Practice a restaurant or travel conversation next.' } });
+  res.json({ success: true, data: { corrections, mistakes: storedMistakes, newWords: words, grammarWeakness: corrections.length ? 'Review the corrections above and reuse each sentence.' : 'Keep practicing complete Chinese sentences.', nextPractice: corrections.length ? 'Try a role-play using your corrected sentences.' : 'Practice a restaurant or travel conversation next.' } });
+};
+
+export const getMistakeMemory = async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  res.json({ success: true, data: await getMistakes(authReq.userId!, Number(req.query.limit) || 20) });
 };

@@ -31,6 +31,7 @@ import {
   type IntegrationSecretUpdates,
 } from '../services/integration-secrets.service';
 import { deleteAIProvider, listAIProviders, providerSecretConfigured, saveAIProvider } from '../services/ai-provider.service';
+import { getMistakes } from '../services/mistake-memory.service';
 
 const slugify = (value: string): string => value
   .toLowerCase()
@@ -663,6 +664,10 @@ export const getAIUsageStats = async (req: Request, res: Response): Promise<void
     AIUsageEvent.aggregate([{ $match: { createdAt: { $gte: since } } }, { $group: { _id: { provider: '$provider', model: '$model' }, requests: { $sum: 1 }, costUsd: { $sum: '$estimatedCostUsd' } } }, { $sort: { requests: -1 } }]),
   ]);
   res.json({ success: true, data: { days, summary, byFeature, byModel } });
+};
+
+export const getUserMistakes = async (req: Request, res: Response): Promise<void> => {
+  res.json({ success: true, data: await getMistakes(req.params.id, 50) });
 };
 
 const integrationFieldMap: Record<string, keyof IntegrationSecretUpdates> = {
