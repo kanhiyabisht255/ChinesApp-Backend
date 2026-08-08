@@ -1,7 +1,7 @@
 import type { AppConfig } from '../types';
 import { AppSetting } from '../models';
 
-const MONETIZATION_POLICY_VERSION = 5;
+const MONETIZATION_POLICY_VERSION = 6;
 
 const DEFAULT_CONFIG: AppConfig = {
   monetizationPolicyVersion: MONETIZATION_POLICY_VERSION,
@@ -28,6 +28,7 @@ const DEFAULT_CONFIG: AppConfig = {
     freeTalkDemoMinutesPerDay: 3,
     freeTalkMaxMinutesPerSession: 3,
     freeTalkMaxTurnsPerSession: 5,
+    maxTalkSessionStartsPerDay: 10,
     premiumTalkMinutesPerSession: 15,
     premiumTalkMinutesPerDay: 20,
     premiumTalkMinutesPerMonth: 300,
@@ -44,8 +45,8 @@ const DEFAULT_CONFIG: AppConfig = {
     lifetime: 7999,
   },
   monetization: {
-    freeVoiceCallsPerDay: 1,
-    freeVoiceTurnsPerDay: 5,
+    freeVoiceCallsPerDay: 10,
+    freeVoiceTurnsPerDay: 100,
     freeChatMessagesPerDay: 10,
     voiceCallGemCost: 20,
     voiceTurnGemCost: 5,
@@ -118,14 +119,15 @@ export const getAppConfig = async (): Promise<AppConfig> => {
         },
         aiConfig: {
           ...cachedConfig.aiConfig,
+          maxTalkSessionStartsPerDay: 10,
           freeUserDailyCostCapUsd: 0.05,
           premiumUserDailyCostCapUsd: 0.2,
           premiumUserMonthlyCostCapUsd: 1.5,
         },
         monetization: {
           ...cachedConfig.monetization,
-          freeVoiceCallsPerDay: 1,
-          freeVoiceTurnsPerDay: 5,
+          freeVoiceCallsPerDay: 10,
+          freeVoiceTurnsPerDay: 100,
           freeChatMessagesPerDay: 10,
         },
       });
@@ -166,6 +168,7 @@ export const updateLocalConfig = async (updates: Partial<AppConfig>): Promise<Ap
       freeTalkDemoMinutesPerDay: Math.max(1, Math.min(Math.round(Number(merged.aiConfig.freeTalkDemoMinutesPerDay) || current.aiConfig.freeTalkDemoMinutesPerDay || 3), 60)),
       freeTalkMaxMinutesPerSession: Math.max(1, Math.min(Math.round(Number(merged.aiConfig.freeTalkMaxMinutesPerSession) || current.aiConfig.freeTalkMaxMinutesPerSession || 3), 60)),
       freeTalkMaxTurnsPerSession: Math.max(1, Math.min(Math.round(Number(merged.aiConfig.freeTalkMaxTurnsPerSession) || current.aiConfig.freeTalkMaxTurnsPerSession || 5), 100)),
+      maxTalkSessionStartsPerDay: Math.max(3, Math.min(Math.round(Number(merged.aiConfig.maxTalkSessionStartsPerDay) || current.aiConfig.maxTalkSessionStartsPerDay || 10), 100)),
       premiumTalkMinutesPerSession: Math.max(1, Math.min(Math.round(Number(merged.aiConfig.premiumTalkMinutesPerSession) || current.aiConfig.premiumTalkMinutesPerSession || 15), 120)),
       premiumTalkMinutesPerDay: Math.max(1, Math.min(Math.round(Number(merged.aiConfig.premiumTalkMinutesPerDay) || current.aiConfig.premiumTalkMinutesPerDay || 20), 1440)),
       premiumTalkMinutesPerMonth: Math.max(1, Math.min(Math.round(Number(merged.aiConfig.premiumTalkMinutesPerMonth) || current.aiConfig.premiumTalkMinutesPerMonth || 300), 100000)),

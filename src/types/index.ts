@@ -74,6 +74,7 @@ export interface ICallSession {
   score: number;
   feedback: string;
   transcript: ITranscriptItem[];
+  lastActiveAt?: Date;
   expiresAt?: Date;
   createdAt: Date;
 }
@@ -275,6 +276,7 @@ export interface IUserReadingProgress {
   isCompleted: boolean;
   bestScore: number;
   attempts: number;
+  lastMode?: 'guided' | 'challenge';
   lastReadAt?: Date;
   completedAt?: Date;
   createdAt: Date;
@@ -435,6 +437,7 @@ export interface IReadingStory {
   color: string;
   isPremium: boolean;
   estimatedMinutes: number;
+  hskLevel?: number;
   order: number;
   paragraphs: IReadingParagraph[];
   vocabulary: IReadingWord[];
@@ -577,6 +580,7 @@ export interface AppConfig {
     freeTalkDemoMinutesPerDay?: number;
     freeTalkMaxMinutesPerSession?: number;
     freeTalkMaxTurnsPerSession?: number;
+    maxTalkSessionStartsPerDay?: number;
     premiumTalkMinutesPerSession?: number;
     premiumTalkMinutesPerDay?: number;
     premiumTalkMinutesPerMonth?: number;

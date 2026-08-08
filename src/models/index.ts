@@ -155,6 +155,7 @@ const callSessionSchema = new Schema<ICallSessionDoc>({
   score: { type: Number, required: true },
   feedback: { type: String, required: true },
   transcript: [transcriptItemSchema],
+  lastActiveAt: { type: Date },
   expiresAt: { type: Date, expires: 0 },
 }, { timestamps: true });
 
@@ -283,6 +284,7 @@ const userReadingProgressSchema = new Schema<IUserReadingProgressDoc>({
   isCompleted: { type: Boolean, default: false, index: true },
   bestScore: { type: Number, default: 0, min: 0, max: 100 },
   attempts: { type: Number, default: 0, min: 0 },
+  lastMode: { type: String, enum: ['guided', 'challenge'] },
   lastReadAt: { type: Date },
   completedAt: { type: Date },
 }, { timestamps: true });

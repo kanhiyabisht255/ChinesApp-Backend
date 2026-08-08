@@ -137,7 +137,7 @@ export const READING_STORY_SEEDS: ReadingStorySeed[] = [
   {
     slug: 'first-day-at-work', title: 'The First Day at Work', titleCn: '工作的第一天', pinyin: 'gōngzuò de dì yī tiān',
     description: 'A new employee learns to introduce herself, ask questions and take notes.', category: 'work', level: 'intermediate',
-    icon: 'work', color: '#6366F1', isPremium: true, estimatedMinutes: 8, order: 7,
+    icon: 'work', color: '#6366F1', isPremium: false, estimatedMinutes: 8, order: 7,
     paragraphs: [
       { chinese: '赵琳今天是新公司的第一天上班，心里有一点紧张。', pinyin: 'Zhào Lín jīntiān shì xīn gōngsī de dì yī tiān shàngbān, xīnli yǒu yìdiǎn jǐnzhāng.', english: 'Today is Zhao Lin’s first day at her new company, and she feels a little nervous.' },
       { chinese: '经理请她向团队介绍自己，并告诉她本周的工作目标。', pinyin: 'Jīnglǐ qǐng tā xiàng tuánduì jièshào zìjǐ, bìng gàosu tā běn zhōu de gōngzuò mùbiāo.', english: 'The manager asks her to introduce herself to the team and tells her this week’s work goals.' },
@@ -179,7 +179,7 @@ export const READING_STORY_SEEDS: ReadingStorySeed[] = [
   {
     slug: 'the-green-library', title: 'The Green Library', titleCn: '绿色图书馆', pinyin: 'lǜsè túshūguǎn',
     description: 'An intermediate reader about a community project and sharing ideas politely.', category: 'community', level: 'advanced',
-    icon: 'local_library', color: '#22C55E', isPremium: true, estimatedMinutes: 9, order: 9,
+    icon: 'local_library', color: '#22C55E', isPremium: false, estimatedMinutes: 9, order: 9,
     paragraphs: [
       { chinese: '旧社区中心有一间很少使用的房间，大家决定把它变成小图书馆。', pinyin: 'Jiù shèqū zhōngxīn yǒu yì jiān hěn shǎo shǐyòng de fángjiān, dàjiā juédìng bǎ tā biàn chéng xiǎo túshūguǎn.', english: 'The old community center has a room that is rarely used, so everyone decides to turn it into a small library.' },
       { chinese: '有人捐书，有人刷墙，还有人设计借书卡。', pinyin: 'Yǒurén juān shū, yǒurén shuā qiáng, hái yǒurén shèjì jièshū kǎ.', english: 'Some people donate books, some paint the walls, and others design library cards.' },

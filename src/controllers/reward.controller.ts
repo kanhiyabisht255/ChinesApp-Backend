@@ -137,13 +137,11 @@ export const prepareReward = async (req: Request, res: Response): Promise<void> 
     const date = new Date().toISOString().slice(0, 10);
     const usage = await AIUsage.findOne({ userId, date }).lean();
     const activeTalk = rewardType === 'talkMinutes'
-      ? await CallSession.findOne({ userId, status: 'started' }).select('createdAt').lean()
+      ? await CallSession.findOne({ userId, status: 'started' }).select('duration').lean()
       : null;
-    const activeTalkQuotaUsed = Boolean(activeTalk && Date.now() - new Date(activeTalk.createdAt).getTime() >= (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60 * 1000);
+    const activeTalkQuotaUsed = Number(activeTalk?.duration || 0) >= (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60;
     const quotaUsed = rewardType === 'talkMinutes'
-      ? Number(usage?.voiceCalls || 0) >= config.monetization.freeVoiceCallsPerDay
-        || Number(usage?.voiceTurns || 0) >= config.monetization.freeVoiceTurnsPerDay
-        || Number(usage?.voiceSeconds || 0) >= (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60
+      ? Number(usage?.voiceSeconds || 0) >= (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60
         || activeTalkQuotaUsed
       : rewardType === 'voiceCall'
         ? Number(usage?.voiceCalls || 0) >= config.monetization.freeVoiceCallsPerDay
@@ -275,8 +273,6 @@ export const claimReward = async (req: Request, res: Response): Promise<void> =>
           update.voiceTurns = current('voiceTurns') - amount;
         } else if (pending.rewardType === 'talkMinutes') {
           update.voiceSeconds = current('voiceSeconds') - amount * 60;
-          update.voiceCalls = current('voiceCalls') - Math.max(1, Math.round(config.ads.voiceCallsPerReward));
-          update.voiceTurns = current('voiceTurns') - Math.max(1, Math.round(config.ads.voiceTurnsPerReward));
         } else {
           update.chatMessages = current('chatMessages') - amount;
         }

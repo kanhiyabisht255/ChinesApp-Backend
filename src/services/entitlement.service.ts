@@ -74,6 +74,12 @@ export const recordAiMinutes = async (userId: string, seconds: number): Promise<
   }));
 };
 
+export const recordAiCounter = async (userId: string, type: 'voiceCalls' | 'voiceTurns'): Promise<void> => {
+  const date = utcDateKey();
+  await ensure(userId, date);
+  await AIUsage.updateOne({ userId, date }, { $inc: { [type]: 1 } });
+};
+
 export const getAiUsage = async (userId: string, isPremium: boolean) => {
   const dayStart = new Date(`${utcDateKey()}T00:00:00.000Z`);
   const [config, day, month, rewardRows] = await Promise.all([
@@ -93,7 +99,7 @@ export const getAiUsage = async (userId: string, isPremium: boolean) => {
   const baseTalkLimitSeconds = (isPremium
     ? (ai.premiumTalkMinutesPerDay || 20)
     : (ai.freeTalkDemoMinutesPerDay || ai.freeTalkMaxMinutesPerSession || 3)) * 60;
-  const voiceCallLimit = isPremium ? 1000 : Math.max(0, config.monetization.freeVoiceCallsPerDay);
+  const voiceCallLimit = isPremium ? 1000 : Math.max(3, config.aiConfig.maxTalkSessionStartsPerDay || 10);
   const rewardCounts = new Map<string, number>(rewardRows.map(row => [String(row._id), Number(row.count || 0)]));
   const contentRewards = rewardCounts.get('content') || 0;
   const chatRewards = rewardCounts.get('chatMessages') || 0;

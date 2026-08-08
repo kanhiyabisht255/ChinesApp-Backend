@@ -309,13 +309,11 @@ export const purchaseAiCredit = async (req: Request, res: Response): Promise<voi
     await dbSession.withTransaction(async () => {
       const usage = await AIUsage.findOne({ userId: authReq.userId, date }).session(dbSession);
       const activeTalk = creditType === 'talkMinute'
-        ? await CallSession.findOne({ userId: authReq.userId, status: 'started' }).select('createdAt').session(dbSession).lean()
+        ? await CallSession.findOne({ userId: authReq.userId, status: 'started' }).select('duration').session(dbSession).lean()
         : null;
-      const activeTalkQuotaUsed = Boolean(activeTalk && Date.now() - new Date(activeTalk.createdAt).getTime() >= (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60 * 1000);
+      const activeTalkQuotaUsed = Number(activeTalk?.duration || 0) >= (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60;
       const talkQuotaUsed = creditType === 'talkMinute' && (
-        Number(usage?.voiceCalls || 0) >= config.monetization.freeVoiceCallsPerDay
-        || Number(usage?.voiceTurns || 0) >= config.monetization.freeVoiceTurnsPerDay
-        || Number(usage?.voiceSeconds || 0) >= (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60
+        Number(usage?.voiceSeconds || 0) >= (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60
         || activeTalkQuotaUsed
       );
       if ((!usage && !activeTalkQuotaUsed) || (creditType === 'talkMinute' ? !talkQuotaUsed : Number(usage?.[offer.field!] || 0) <= 0)) {
@@ -342,8 +340,6 @@ export const purchaseAiCredit = async (req: Request, res: Response): Promise<voi
           {
             $inc: {
               voiceSeconds: -60,
-              voiceCalls: -1,
-              voiceTurns: -Math.max(1, Math.round(config.ads.voiceTurnsPerReward)),
             },
           },
           { session: dbSession },

@@ -50,6 +50,10 @@ export const getReadingStories = async (req: Request, res: Response): Promise<vo
         isLocked: false,
         isCompleted: userProgress?.isCompleted === true,
         bestScore: Number(userProgress?.bestScore || 0),
+        attempts: Number(userProgress?.attempts || 0),
+        paragraphCount: story.paragraphs.length,
+        vocabularyCount: story.vocabulary.length,
+        questionCount: story.questions.length,
       };
       const unlocked = access.premium || access.unlockedIds.has(story._id.toString());
       return story.isPremium && !unlocked ? redactPremiumStory(withProgress) : withProgress;
@@ -64,21 +68,26 @@ export const getReadingStory = async (req: Request, res: Response): Promise<void
     res.status(404).json({ success: false, message: 'Reading story not found' });
     return;
   }
-  if (story.isPremium && !(await hasContentAccess((req as AuthRequest).userId, 'reading', story._id.toString()))) {
-    res.status(403).json({ success: false, message: 'Premium subscription required for this reading story' });
-    return;
-  }
   const userId = (req as AuthRequest).userId;
   const progress = userId
     ? await UserReadingProgress.findOne({ userId, storyId: story._id.toString() }).lean()
     : null;
+  const unlocked = !story.isPremium || await hasContentAccess(userId, 'reading', story._id.toString());
+  const localized = localizeReadingStory(story, language);
+  const withProgress = {
+    ...localized,
+    isLocked: false,
+    isCompleted: progress?.isCompleted === true,
+    bestScore: Number(progress?.bestScore || 0),
+    attempts: Number(progress?.attempts || 0),
+    paragraphCount: story.paragraphs.length,
+    vocabularyCount: story.vocabulary.length,
+    questionCount: story.questions.length,
+  };
   res.json({
     success: true,
     data: {
-      ...localizeReadingStory(story, language),
-      isLocked: false,
-      isCompleted: progress?.isCompleted === true,
-      bestScore: Number(progress?.bestScore || 0),
+      ...(unlocked ? withProgress : redactPremiumStory(withProgress)),
     },
   });
 };
@@ -95,6 +104,7 @@ export const completeReadingStory = async (req: Request, res: Response): Promise
     return;
   }
   const answers = Array.isArray(req.body.answers) ? req.body.answers.map(String) : [];
+  const mode = req.body.mode === 'challenge' ? 'challenge' : 'guided';
   if (story.questions.length > 0 && answers.length === 0) {
     res.status(400).json({ success: false, message: 'Complete the story questions before finishing' });
     return;
@@ -133,6 +143,7 @@ export const completeReadingStory = async (req: Request, res: Response): Promise
         bestScore: Math.max(Number(existing?.bestScore || 0), score),
         lastReadAt: now,
         completedAt: existing?.completedAt || now,
+        lastMode: mode,
       },
       $inc: { attempts: 1 },
     },

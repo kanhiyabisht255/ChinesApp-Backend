@@ -10,7 +10,7 @@ import { createHash, randomUUID } from 'crypto';
 import mongoose from 'mongoose';
 import { User, Progress, CallSession, Scenario, RealtimeSession, AIUsageEvent } from '../models';
 import type { AuthRequest, ITranscriptItem } from '../types';
-import { consumeAiQuota, hasActivePremium, refundAiQuota, getAiUsage, recordAiMinutes } from '../services/entitlement.service';
+import { consumeAiQuota, hasActivePremium, refundAiQuota, getAiUsage, recordAiCounter, recordAiMinutes } from '../services/entitlement.service';
 import { getAppConfig } from '../services/config.service';
 import { getIntegrationSecret } from '../services/integration-secrets.service';
 import { estimateProviderCost, selectAIProvider } from '../services/ai-provider.service';
@@ -61,6 +61,30 @@ const activeVoiceCall = async (userId: string | undefined, sessionId: unknown) =
   return CallSession.findOne({ userId, sessionId, status: 'started' });
 };
 
+const VOICE_RESUME_WINDOW_MS = 90 * 1000;
+
+const closeStaleVoiceCalls = async (userId: string): Promise<void> => {
+  const staleBefore = new Date(Date.now() - VOICE_RESUME_WINDOW_MS);
+  const staleCalls = await CallSession.find({
+    userId,
+    status: 'started',
+    $or: [
+      { lastActiveAt: { $lt: staleBefore } },
+      { lastActiveAt: { $exists: false }, createdAt: { $lt: staleBefore } },
+    ],
+  });
+  for (const call of staleCalls) {
+    // Only charge time that the client has explicitly confirmed. A disconnected
+    // or backgrounded app must not turn wall-clock time into practice time.
+    const duration = Math.max(0, Number(call.duration || 0));
+    const closed = await CallSession.findOneAndUpdate(
+      { _id: call._id, status: 'started' },
+      { $set: { status: 'completed', duration, feedback: 'Conversation was interrupted.' }, $unset: { expiresAt: 1 } },
+    );
+    if (closed && duration > 0) await recordAiMinutes(userId, duration);
+  }
+};
+
 const enforceVoiceSessionAllowance = async (userId: string, activeCall: any): Promise<void> => {
   if (!activeCall) return;
   const [user, config] = await Promise.all([User.findById(userId).lean(), getAppConfig()]);
@@ -71,9 +95,15 @@ const enforceVoiceSessionAllowance = async (userId: string, activeCall: any): Pr
   const sessionCap = premium
     ? (config.aiConfig.premiumTalkMinutesPerSession || 15) * 60
     : (config.aiConfig.freeTalkMaxMinutesPerSession || 3) * 60 + rewardedBonusSeconds;
-  const elapsed = Math.floor((Date.now() - activeCall.createdAt.getTime()) / 1000);
-  const remaining = Math.min(usage.talk.dailyLimitSeconds - usage.talk.usedSecondsToday, usage.talk.monthlyLimitSeconds == null ? Number.MAX_SAFE_INTEGER : usage.talk.monthlyLimitSeconds - usage.talk.usedSecondsMonth);
-  if (elapsed >= sessionCap || remaining <= 0) throw new AIServiceError('AI Talk allowance reached. End this session or upgrade your plan.', 'AI_TALK_LIMIT', 429);
+  const elapsed = Math.max(0, Number(activeCall.duration || 0));
+  const remaining = Math.max(0, Math.min(
+    usage.talk.dailyLimitSeconds - usage.talk.usedSecondsToday,
+    usage.talk.monthlyLimitSeconds == null
+      ? Number.MAX_SAFE_INTEGER
+      : usage.talk.monthlyLimitSeconds - usage.talk.usedSecondsMonth,
+  ));
+  const activeSessionAllowance = Math.min(sessionCap, remaining);
+  if (elapsed >= activeSessionAllowance) throw new AIServiceError('AI Talk allowance reached. End this session or upgrade your plan.', 'AI_TALK_LIMIT', 429);
 };
 
 export const startVoiceCall = async (req: Request, res: Response): Promise<void> => {
@@ -92,9 +122,44 @@ export const startVoiceCall = async (req: Request, res: Response): Promise<void>
       return;
     }
     const activePremium = hasActivePremium(user);
+    await closeStaleVoiceCalls(authReq.userId!);
     const usage = await getAiUsage(authReq.userId!, activePremium);
     if (usage.talk.dailyLimitSeconds <= usage.talk.usedSecondsToday || (usage.talk.monthlyLimitSeconds != null && usage.talk.monthlyLimitSeconds <= usage.talk.usedSecondsMonth)) {
       res.status(429).json({ success: false, message: 'Your AI Talk allowance is used for this period. Please wait for reset or upgrade your plan.', code: 'AI_TALK_LIMIT' });
+      return;
+    }
+    const resumeAfter = new Date(Date.now() - VOICE_RESUME_WINDOW_MS);
+    const resumableCall = await CallSession.findOne({
+      userId: authReq.userId,
+      status: 'started',
+      $or: [
+        { lastActiveAt: { $gte: resumeAfter } },
+        { lastActiveAt: { $exists: false }, createdAt: { $gte: resumeAfter } },
+      ],
+    }).sort({ createdAt: -1 });
+    const lastAiTurn = resumableCall
+      ? [...resumableCall.transcript].reverse().find(item => item.role === 'ai')
+      : undefined;
+    if (resumableCall && lastAiTurn) {
+      res.json({
+        success: true,
+        data: {
+          sessionId: resumableCall.sessionId,
+          scenarioId: resumableCall.scenarioId || null,
+          scenarioTitle: resumableCall.scenarioTitle,
+          message: 'Conversation resumed',
+          aiResponse: {
+            chinese: lastAiTurn.chinese,
+            pinyin: lastAiTurn.pinyin,
+            english: lastAiTurn.english,
+            correction: lastAiTurn.correction,
+            feedback: lastAiTurn.feedback,
+          },
+          transcript: resumableCall.transcript,
+          resumed: true,
+          elapsedSeconds: Math.max(0, Number(resumableCall.duration || 0)),
+        },
+      });
       return;
     }
     const scenarioAccess = !scenario?.isPremium || activePremium || await hasContentAccess(
@@ -106,12 +171,12 @@ export const startVoiceCall = async (req: Request, res: Response): Promise<void>
       res.status(403).json({ success: false, message: 'Premium required for this scenario' });
       return;
     }
-    const quota = await consumeAiQuota(authReq.userId, 'voiceCalls', activePremium);
-    if (!quota.allowed) {
+    const maxStarts = Math.max(3, (await getAppConfig()).aiConfig.maxTalkSessionStartsPerDay || 10);
+    if (usage.talk.usedCallsToday >= maxStarts) {
       res.status(429).json({
         success: false,
-        message: 'Today\'s AI Talk demo is used. Upgrade for a larger allowance or wait for reset.',
-        code: 'AI_TALK_CALL_LIMIT',
+        message: 'Too many AI Talk sessions were started today. Please continue longer sessions or try again tomorrow.',
+        code: 'AI_TALK_START_GUARD',
       });
       return;
     }
@@ -148,8 +213,10 @@ export const startVoiceCall = async (req: Request, res: Response): Promise<void>
           feedback: aiResponse.feedback,
           timestamp: Date.now(),
         }],
+        lastActiveAt: new Date(),
         expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
       });
+      await recordAiCounter(authReq.userId!, 'voiceCalls');
 
       res.json({
         success: true,
@@ -160,13 +227,9 @@ export const startVoiceCall = async (req: Request, res: Response): Promise<void>
           message: 'Call session started',
           aiResponse,
           audioBase64,
-          quota,
         },
       });
     } catch (error) {
-      await refundAiQuota(authReq.userId, 'voiceCalls', activePremium).catch(refundError => {
-        console.error('Failed to refund voice-call quota:', refundError);
-      });
       throw error;
     }
   } catch (error) {
@@ -183,10 +246,12 @@ export const processVoiceAudio = async (req: Request, res: Response): Promise<vo
     return;
   }
   
-  let quotaConsumed = false;
-  let premiumUser = false;
   try {
     const { expectedChinese, scenarioId, sessionId } = req.body;
+    const clientElapsedSeconds = Number.isFinite(Number(req.body.elapsedSeconds))
+      ? Math.max(0, Math.min(Number(req.body.elapsedSeconds), 7200))
+      : 0;
+    await closeStaleVoiceCalls(authReq.userId!);
     const activeCall = await activeVoiceCall(authReq.userId, sessionId);
     if (sessionId && !activeCall) {
       res.status(409).json({ success: false, message: 'Voice session is not active. Start a new call.' });
@@ -207,13 +272,6 @@ export const processVoiceAudio = async (req: Request, res: Response): Promise<vo
       contextMessages = buildVoiceCallContext(activeCall.transcript);
     }
     const tutor = await buildTutorOptions(authReq.userId, sessionScenarioId);
-    premiumUser = hasActivePremium(tutor.user);
-    const quota = await consumeAiQuota(authReq.userId, 'voiceTurns', premiumUser);
-    if (!quota.allowed) {
-      res.status(429).json({ success: false, message: 'Today\'s AI Talk turn allowance is used. Upgrade for a larger allowance or wait for reset.', code: 'AI_TALK_LIMIT' });
-      return;
-    }
-    quotaConsumed = true;
     const spokenText = await transcribeAudio(
       req.file.buffer,
       { ...tutor.options, inputAudioSeconds: Math.max(1, Math.ceil(req.file.size / 16000)) },
@@ -258,10 +316,13 @@ export const processVoiceAudio = async (req: Request, res: Response): Promise<vo
               ],
             },
           },
+          $set: { lastActiveAt: new Date() },
+          $max: { duration: clientElapsedSeconds },
         },
       );
     }
-    
+    await recordAiCounter(authReq.userId!, 'voiceTurns');
+
     res.json({
       success: true,
       data: {
@@ -270,16 +331,10 @@ export const processVoiceAudio = async (req: Request, res: Response): Promise<vo
         audioBase64,
         pronunciationScore: pronunciation?.score,
         pronunciationFeedback: pronunciation?.feedback,
-        quota,
       },
     });
   } catch (error) {
     console.error('Voice processing error:', error);
-    if (quotaConsumed) {
-      await refundAiQuota(authReq.userId, 'voiceTurns', premiumUser).catch(refundError => {
-        console.error('Failed to refund voice-turn quota:', refundError);
-      });
-    }
     sendAIError(res, error, 'Failed to process audio');
   }
 };
@@ -288,8 +343,6 @@ export const processVoiceText = async (req: Request, res: Response): Promise<voi
   const authReq = req as AuthRequest;
   const { text, context, scenarioId } = req.body;
   
-  let quotaConsumed = false;
-  let premiumUser = false;
   try {
     if (typeof text !== 'string' || !text.trim() || text.length > 2000) {
       res.status(400).json({ success: false, message: 'Text must be between 1 and 2000 characters' });
@@ -299,13 +352,6 @@ export const processVoiceText = async (req: Request, res: Response): Promise<voi
       ? context.filter(item => typeof item === 'string').slice(-12)
       : [];
     const tutor = await buildTutorOptions(authReq.userId, scenarioId);
-    premiumUser = hasActivePremium(tutor.user);
-    const quota = await consumeAiQuota(authReq.userId, 'voiceTurns', premiumUser);
-    if (!quota.allowed) {
-      res.status(429).json({ success: false, message: 'Today\'s AI Talk turn allowance is used. Upgrade for a larger allowance or wait for reset.', code: 'AI_TALK_LIMIT' });
-      return;
-    }
-    quotaConsumed = true;
     const aiResponse = await generateAIResponse(text, contextMessages, { ...tutor.options, isVoiceCall: true });
     let audioBase64: string | undefined;
     try {
@@ -314,21 +360,17 @@ export const processVoiceText = async (req: Request, res: Response): Promise<voi
       console.error('TTS unavailable, returning text response:', ttsError);
     }
     
+    await recordAiCounter(authReq.userId!, 'voiceTurns');
+
     res.json({
       success: true,
       data: {
         aiResponse,
         audioBase64,
-        quota,
       },
     });
   } catch (error) {
     console.error('AI response error:', error);
-    if (quotaConsumed) {
-      await refundAiQuota(authReq.userId, 'voiceTurns', premiumUser).catch(refundError => {
-        console.error('Failed to refund voice-turn quota:', refundError);
-      });
-    }
     sendAIError(res, error, 'Failed to generate response');
   }
 };
@@ -341,6 +383,7 @@ export const processVoiceAction = async (req: Request, res: Response): Promise<v
     res.status(400).json({ success: false, message: 'Tutor action must be hint or simpler' });
     return;
   }
+  await closeStaleVoiceCalls(authReq.userId!);
   const call = await activeVoiceCall(authReq.userId, sessionId);
   if (!call) {
     res.status(409).json({ success: false, message: 'Voice session is not active. Start a new call.' });
@@ -348,17 +391,8 @@ export const processVoiceAction = async (req: Request, res: Response): Promise<v
   }
   await enforceVoiceSessionAllowance(authReq.userId!, call);
 
-  let quotaConsumed = false;
-  let premiumUser = false;
   try {
     const tutor = await buildTutorOptions(authReq.userId, call.scenarioId);
-    premiumUser = hasActivePremium(tutor.user);
-    const quota = await consumeAiQuota(authReq.userId, 'voiceTurns', premiumUser);
-    if (!quota.allowed) {
-      res.status(429).json({ success: false, message: 'Today\'s AI Talk turn allowance is used. Upgrade for a larger allowance or wait for reset.', code: 'AI_TALK_LIMIT' });
-      return;
-    }
-    quotaConsumed = true;
     const context = buildVoiceCallContext(call.transcript);
     const prompt = action === 'hint'
       ? 'Tutor control: Give the learner ONE short, natural Chinese sentence they can say next. Make it directly answer your latest question and fit their HSK level. This is a hint, not your next role-play turn.'
@@ -370,16 +404,17 @@ export const processVoiceAction = async (req: Request, res: Response): Promise<v
     } catch (ttsError) {
       console.error('TTS unavailable for tutor action, returning text response:', ttsError);
     }
+    await CallSession.updateOne(
+      { _id: call._id, status: 'started' },
+      { $set: { lastActiveAt: new Date() } },
+    );
+    await recordAiCounter(authReq.userId!, 'voiceTurns');
+
     res.json({
       success: true,
-      data: { tutorAction: action, aiResponse, audioBase64, quota },
+      data: { tutorAction: action, aiResponse, audioBase64 },
     });
   } catch (error) {
-    if (quotaConsumed) {
-      await refundAiQuota(authReq.userId, 'voiceTurns', premiumUser).catch(refundError => {
-        console.error('Failed to refund tutor-action quota:', refundError);
-      });
-    }
     console.error('Tutor action error:', error);
     sendAIError(res, error, 'Unable to provide tutor help');
   }
@@ -420,7 +455,6 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
       }).session(dbSession);
       if (!activeCall) return;
 
-      const elapsedSeconds = Math.max(0, Math.floor((Date.now() - activeCall.createdAt.getTime()) / 1000));
       const user = await User.findById(authReq.userId).session(dbSession);
       const premium = hasActivePremium(user);
       const usage = await getAiUsage(authReq.userId!, premium);
@@ -434,7 +468,7 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
       const monthlyRemaining = usage.talk.monthlyLimitSeconds == null
         ? Number.MAX_SAFE_INTEGER
         : Math.max(0, usage.talk.monthlyLimitSeconds - usage.talk.usedSecondsMonth);
-      safeDuration = Math.min(clientDuration, elapsedSeconds + 10, sessionCap, dailyRemaining, monthlyRemaining, 7200);
+      safeDuration = Math.min(clientDuration, sessionCap, dailyRemaining, monthlyRemaining, 7200);
       const serverTranscript = activeCall.transcript?.length > 0
         ? activeCall.transcript.map(item => ({
             role: item.role,
