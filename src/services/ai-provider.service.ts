@@ -6,6 +6,7 @@ export interface AIProviderConfig {
   id: string;
   name: string;
   type: AIProviderType;
+  managedPreset?: boolean;
   baseUrl?: string;
   secretName?: string;
   chatModel?: string;
@@ -24,6 +25,69 @@ export interface AIProviderConfig {
 }
 
 const KEY = 'ai-providers';
+const DEFAULT_PROVIDERS: AIProviderConfig[] = [
+  {
+    id: 'openai-default',
+    name: 'OpenAI',
+    type: 'openai',
+    managedPreset: true,
+    secretName: 'OPENAI_API_KEY',
+    chatModel: 'gpt-4o-mini',
+    transcriptionModel: 'gpt-4o-mini-transcribe',
+    ttsModel: 'gpt-4o-mini-tts',
+    realtimeModel: 'gpt-realtime-2.1',
+    capabilities: ['chat', 'talk_response', 'talk_transcription', 'talk_tts', 'talk_realtime'],
+    priority: 10,
+    enabled: true,
+    dailyBudgetUsd: 0,
+    monthlyBudgetUsd: 0,
+    inputCostPerMillionTokens: 0,
+    outputCostPerMillionTokens: 0,
+    inputAudioCostPerMinute: 0,
+    outputAudioCostPerMinute: 0,
+  },
+  {
+    id: 'gemini-default',
+    name: 'Google Gemini',
+    type: 'gemini',
+    managedPreset: true,
+    secretName: 'GEMINI_API_KEY',
+    chatModel: 'gemini-2.5-flash',
+    capabilities: ['chat'],
+    priority: 20,
+    enabled: false,
+    dailyBudgetUsd: 0,
+    monthlyBudgetUsd: 0,
+    inputCostPerMillionTokens: 0,
+    outputCostPerMillionTokens: 0,
+    inputAudioCostPerMinute: 0,
+    outputAudioCostPerMinute: 0,
+  },
+  {
+    id: 'anthropic-default',
+    name: 'Anthropic',
+    type: 'anthropic',
+    managedPreset: true,
+    secretName: 'ANTHROPIC_API_KEY',
+    chatModel: 'claude-3-5-haiku-latest',
+    capabilities: ['chat'],
+    priority: 30,
+    enabled: false,
+    dailyBudgetUsd: 0,
+    monthlyBudgetUsd: 0,
+    inputCostPerMillionTokens: 0,
+    outputCostPerMillionTokens: 0,
+    inputAudioCostPerMinute: 0,
+    outputAudioCostPerMinute: 0,
+  },
+];
+const DEFAULT_PROVIDER_IDS = new Set(DEFAULT_PROVIDERS.map(provider => provider.id));
+
+const cloneProvider = (provider: AIProviderConfig): AIProviderConfig => ({
+  ...provider,
+  capabilities: [...provider.capabilities],
+});
+
 const validBaseUrl = (value?: string) => {
   if (!value) return undefined;
   const parsed = new URL(value);
@@ -35,7 +99,17 @@ const validBaseUrl = (value?: string) => {
 
 export const listAIProviders = async (): Promise<AIProviderConfig[]> => {
   const setting = await AppSetting.findOne({ key: KEY }).lean();
-  return Array.isArray(setting?.value) ? setting?.value as AIProviderConfig[] : [];
+  const stored = Array.isArray(setting?.value) ? setting.value as AIProviderConfig[] : [];
+  const missingDefaults = DEFAULT_PROVIDERS.filter(preset => !stored.some(provider => provider.id === preset.id));
+  if (!missingDefaults.length) return stored;
+
+  const providers = [...stored, ...missingDefaults.map(cloneProvider)];
+  await AppSetting.findOneAndUpdate(
+    { key: KEY },
+    { $set: { value: providers } },
+    { upsert: true, new: true },
+  );
+  return providers;
 };
 
 export const saveAIProvider = async (input: Partial<AIProviderConfig> & { apiKey?: string }): Promise<AIProviderConfig> => {
@@ -46,6 +120,7 @@ export const saveAIProvider = async (input: Partial<AIProviderConfig> & { apiKey
     id,
     name: String(input.name || existing?.name || id).trim().slice(0, 100),
     type: (input.type || existing?.type || 'custom') as AIProviderType,
+    managedPreset: Boolean(existing?.managedPreset || DEFAULT_PROVIDER_IDS.has(id)),
     baseUrl: validBaseUrl(input.baseUrl || existing?.baseUrl),
     secretName: existing?.secretName || `AI_PROVIDER_${id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_KEY`,
     chatModel: String(input.chatModel || existing?.chatModel || '').trim().slice(0, 100),
@@ -71,6 +146,11 @@ export const saveAIProvider = async (input: Partial<AIProviderConfig> & { apiKey
 export const deleteAIProvider = async (id: string) => {
   const providers = await listAIProviders();
   const provider = providers.find(item => item.id === id);
+  if (provider?.managedPreset || DEFAULT_PROVIDER_IDS.has(id)) {
+    const disabled = providers.map(item => item.id === id ? { ...item, enabled: false } : item);
+    await AppSetting.findOneAndUpdate({ key: KEY }, { $set: { value: disabled } }, { upsert: true, new: true });
+    return;
+  }
   if (provider?.secretName) await updateCustomIntegrationSecret(provider.secretName, null);
   await AppSetting.findOneAndUpdate({ key: KEY }, { $set: { value: providers.filter(item => item.id !== id) } }, { upsert: true, new: true });
 };
