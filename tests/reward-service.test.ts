@@ -9,10 +9,14 @@ describe('rewarded monetization rules', () => {
   });
 
   it('uses server-configured AI rewards and never grants less than one', () => {
-    const config = { voiceCallsPerReward: 1, voiceTurnsPerReward: 2 };
+    const config = { voiceCallsPerReward: 1, voiceTurnsPerReward: 2, talkMinutesPerReward: 1, chatMessagesPerReward: 3 };
     expect(rewardGrantAmount('content', config)).toBe(1);
     expect(rewardGrantAmount('voiceCall', config)).toBe(1);
     expect(rewardGrantAmount('voiceTurn', config)).toBe(2);
+    expect(rewardGrantAmount('talkMinutes', config)).toBe(1);
+    expect(rewardGrantAmount('chatMessages', config)).toBe(3);
     expect(rewardGrantAmount('voiceTurn', { ...config, voiceTurnsPerReward: 0 })).toBe(1);
+    expect(rewardGrantAmount('talkMinutes', { ...config, talkMinutesPerReward: 0 })).toBe(1);
+    expect(rewardGrantAmount('chatMessages', { ...config, chatMessagesPerReward: 0 })).toBe(3);
   });
 });

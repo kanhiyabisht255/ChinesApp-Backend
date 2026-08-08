@@ -26,6 +26,7 @@ import {
   deleteUser,
   getUserProgress,
   getUserCalls,
+  resetUserAiTalkUsage,
   getAllPayments,
   getPaymentStats,
   getAllSubscriptions,
@@ -66,6 +67,7 @@ import {
   getAIUsageStats,
   getUserMistakes,
 } from '../controllers/admin.controller';
+import { getProductAnalytics } from '../controllers/admin-analytics.controller';
 
 const router = Router();
 const storyAudioUpload = multer({
@@ -80,6 +82,7 @@ router.use(asyncHandler(authMiddleware), asyncHandler(adminMiddleware));
 router.get('/dashboard/stats', asyncHandler(getDashboardStats));
 router.get('/dashboard/revenue', asyncHandler(getRevenueChart));
 router.get('/dashboard/users', asyncHandler(getUsersChart));
+router.get('/analytics/product', asyncHandler(getProductAnalytics));
 
 router.get('/users', asyncHandler(getAllUsers));
 router.get('/users/:id', asyncHandler(getUser));
@@ -87,6 +90,7 @@ router.put('/users/:id', asyncHandler(updateUser));
 router.delete('/users/:id', asyncHandler(deleteUser));
 router.get('/users/:id/progress', asyncHandler(getUserProgress));
 router.get('/users/:id/calls', asyncHandler(getUserCalls));
+router.post('/users/:id/ai-usage/reset-talk', asyncHandler(resetUserAiTalkUsage));
 router.get('/users/:id/mistakes', asyncHandler(getUserMistakes));
 
 router.get('/payments', asyncHandler(getAllPayments));

@@ -1,7 +1,7 @@
 import type { AppConfig } from '../types';
 import { AppSetting } from '../models';
 
-const MONETIZATION_POLICY_VERSION = 4;
+const MONETIZATION_POLICY_VERSION = 5;
 
 const DEFAULT_CONFIG: AppConfig = {
   monetizationPolicyVersion: MONETIZATION_POLICY_VERSION,
@@ -34,6 +34,9 @@ const DEFAULT_CONFIG: AppConfig = {
     realtimeTalkEnabled: true,
     globalDailyBudgetUsd: 100,
     globalMonthlyBudgetUsd: 2000,
+    freeUserDailyCostCapUsd: 0.05,
+    premiumUserDailyCostCapUsd: 0.2,
+    premiumUserMonthlyCostCapUsd: 1.5,
   },
   pricing: {
     monthly: 499,
@@ -57,8 +60,13 @@ const DEFAULT_CONFIG: AppConfig = {
     bannerAdUnitId: '',
     interstitialAdUnitId: '',
     rewardedAdUnitId: '',
-    maxRewardedAdsPerDay: 3,
+    maxRewardedAdsPerDay: 8,
+    maxContentRewardedAdsPerDay: 5,
+    maxChatRewardedAdsPerDay: 1,
+    maxTalkRewardedAdsPerDay: 2,
     contentUnlockHours: 24,
+    chatMessagesPerReward: 3,
+    talkMinutesPerReward: 1,
     voiceCallsPerReward: 1,
     voiceTurnsPerReward: 2,
     rewardedContentTypes: ['lesson', 'reading', 'listening', 'vocabulary', 'story'],
@@ -99,9 +107,20 @@ export const getAppConfig = async (): Promise<AppConfig> => {
           interstitialEnabled: false,
           rewardedEnabled: true,
           interstitialCooldownSeconds: 600,
-          maxRewardedAdsPerDay: 3,
+          maxRewardedAdsPerDay: 8,
+          maxContentRewardedAdsPerDay: 5,
+          maxChatRewardedAdsPerDay: 1,
+          maxTalkRewardedAdsPerDay: 2,
           contentUnlockHours: 24,
+          chatMessagesPerReward: 3,
+          talkMinutesPerReward: 1,
           rewardedContentTypes: ['lesson', 'reading', 'listening', 'vocabulary', 'story'],
+        },
+        aiConfig: {
+          ...cachedConfig.aiConfig,
+          freeUserDailyCostCapUsd: 0.05,
+          premiumUserDailyCostCapUsd: 0.2,
+          premiumUserMonthlyCostCapUsd: 1.5,
         },
         monetization: {
           ...cachedConfig.monetization,
@@ -153,6 +172,9 @@ export const updateLocalConfig = async (updates: Partial<AppConfig>): Promise<Ap
       realtimeTalkEnabled: Boolean(merged.aiConfig.realtimeTalkEnabled ?? current.aiConfig.realtimeTalkEnabled),
       globalDailyBudgetUsd: Math.max(0, Math.min(Number(merged.aiConfig.globalDailyBudgetUsd) || current.aiConfig.globalDailyBudgetUsd || 100, 1_000_000)),
       globalMonthlyBudgetUsd: Math.max(0, Math.min(Number(merged.aiConfig.globalMonthlyBudgetUsd) || current.aiConfig.globalMonthlyBudgetUsd || 2000, 10_000_000)),
+      freeUserDailyCostCapUsd: Math.max(0, Math.min(Number(merged.aiConfig.freeUserDailyCostCapUsd) || current.aiConfig.freeUserDailyCostCapUsd || 0.05, 10_000)),
+      premiumUserDailyCostCapUsd: Math.max(0, Math.min(Number(merged.aiConfig.premiumUserDailyCostCapUsd) || current.aiConfig.premiumUserDailyCostCapUsd || 0.2, 10_000)),
+      premiumUserMonthlyCostCapUsd: Math.max(0, Math.min(Number(merged.aiConfig.premiumUserMonthlyCostCapUsd) || current.aiConfig.premiumUserMonthlyCostCapUsd || 1.5, 100_000)),
     },
     pricing: {
       monthly: Math.max(1, Math.min(Number(merged.pricing.monthly) || current.pricing.monthly, 1_000_000)),
@@ -180,7 +202,12 @@ export const updateLocalConfig = async (updates: Partial<AppConfig>): Promise<Ap
       interstitialAdUnitId: String(merged.ads.interstitialAdUnitId || '').trim().slice(0, 200),
       rewardedAdUnitId: String(merged.ads.rewardedAdUnitId || '').trim().slice(0, 200),
       maxRewardedAdsPerDay: Math.max(0, Math.min(Math.round(Number(merged.ads.maxRewardedAdsPerDay) || 0), 20)),
+      maxContentRewardedAdsPerDay: Math.max(0, Math.min(Math.round(Number(merged.ads.maxContentRewardedAdsPerDay) || 0), 20)),
+      maxChatRewardedAdsPerDay: Math.max(0, Math.min(Math.round(Number(merged.ads.maxChatRewardedAdsPerDay) || 0), 20)),
+      maxTalkRewardedAdsPerDay: Math.max(0, Math.min(Math.round(Number(merged.ads.maxTalkRewardedAdsPerDay) || 0), 20)),
       contentUnlockHours: Math.max(1, Math.min(Math.round(Number(merged.ads.contentUnlockHours) || current.ads.contentUnlockHours), 168)),
+      chatMessagesPerReward: Math.max(1, Math.min(Math.round(Number(merged.ads.chatMessagesPerReward) || current.ads.chatMessagesPerReward || 3), 20)),
+      talkMinutesPerReward: Math.max(1, Math.min(Math.round(Number(merged.ads.talkMinutesPerReward) || current.ads.talkMinutesPerReward || 1), 5)),
       voiceCallsPerReward: Math.max(1, Math.min(Math.round(Number(merged.ads.voiceCallsPerReward) || current.ads.voiceCallsPerReward), 5)),
       voiceTurnsPerReward: Math.max(1, Math.min(Math.round(Number(merged.ads.voiceTurnsPerReward) || current.ads.voiceTurnsPerReward), 20)),
       rewardedContentTypes: [...new Set(

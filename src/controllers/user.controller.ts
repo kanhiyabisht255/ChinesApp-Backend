@@ -289,10 +289,11 @@ export const purchaseAiCredit = async (req: Request, res: Response): Promise<voi
   const authReq = req as AuthRequest;
   const creditType = String(req.body.creditType || '');
   const config = await getAppConfig();
-  const offers: Record<string, { field: 'voiceCalls' | 'voiceTurns' | 'chatMessages'; cost: number; label: string }> = {
+  const offers: Record<string, { field?: 'voiceCalls' | 'voiceTurns' | 'chatMessages'; cost: number; label: string }> = {
     voiceCall: { field: 'voiceCalls', cost: config.monetization.voiceCallGemCost, label: 'one extra AI call' },
     voiceTurn: { field: 'voiceTurns', cost: config.monetization.voiceTurnGemCost, label: 'one extra speaking turn' },
     chatMessage: { field: 'chatMessages', cost: config.monetization.chatMessageGemCost, label: 'one extra AI chat message' },
+    talkMinute: { cost: config.monetization.voiceCallGemCost, label: 'one extra AI Talk minute' },
   };
   const offer = offers[creditType];
   if (!offer) {
@@ -307,7 +308,12 @@ export const purchaseAiCredit = async (req: Request, res: Response): Promise<voi
   try {
     await dbSession.withTransaction(async () => {
       const usage = await AIUsage.findOne({ userId: authReq.userId, date }).session(dbSession);
-      if (!usage || Number(usage[offer.field] || 0) <= 0) {
+      const talkQuotaUsed = creditType === 'talkMinute' && usage && (
+        Number(usage.voiceCalls || 0) >= config.monetization.freeVoiceCallsPerDay
+        || Number(usage.voiceTurns || 0) >= config.monetization.freeVoiceTurnsPerDay
+        || Number(usage.voiceSeconds || 0) >= (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60
+      );
+      if (!usage || (creditType === 'talkMinute' ? !talkQuotaUsed : Number(usage[offer.field!] || 0) <= 0)) {
         failure = 'quota_available';
         return;
       }
@@ -320,11 +326,25 @@ export const purchaseAiCredit = async (req: Request, res: Response): Promise<voi
         failure = 'insufficient_gems';
         return;
       }
-      await AIUsage.updateOne(
-        { _id: usage._id, [offer.field]: { $gt: 0 } },
-        { $inc: { [offer.field]: -1 } },
-        { session: dbSession },
-      );
+      if (creditType === 'talkMinute') {
+        await AIUsage.updateOne(
+          { _id: usage._id },
+          {
+            $inc: {
+              voiceSeconds: -60,
+              voiceCalls: -1,
+              voiceTurns: -Math.max(1, Math.round(config.ads.voiceTurnsPerReward)),
+            },
+          },
+          { session: dbSession },
+        );
+      } else {
+        await AIUsage.updateOne(
+          { _id: usage._id, [offer.field!]: { $gt: 0 } },
+          { $inc: { [offer.field!]: -1 } },
+          { session: dbSession },
+        );
+      }
       balance = user.gems;
       await GemTransaction.create([{
         userId: authReq.userId,

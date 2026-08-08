@@ -168,6 +168,7 @@ export const checkMaintenance = async (
     '/api/health',
     '/api/config',
     '/api/version',
+    '/api/analytics/events',
   ].includes(req.path) || req.path.startsWith('/api/admin');
   
   if (isMaintenance && !alwaysAvailable) {

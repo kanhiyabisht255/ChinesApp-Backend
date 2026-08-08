@@ -35,16 +35,16 @@ const DEFAULT_PROVIDERS: AIProviderConfig[] = [
     chatModel: 'gpt-4o-mini',
     transcriptionModel: 'gpt-4o-mini-transcribe',
     ttsModel: 'gpt-4o-mini-tts',
-    realtimeModel: 'gpt-realtime-2.1',
+    realtimeModel: 'gpt-realtime-2.1-mini',
     capabilities: ['chat', 'talk_response', 'talk_transcription', 'talk_tts', 'talk_realtime'],
     priority: 10,
     enabled: true,
     dailyBudgetUsd: 0,
     monthlyBudgetUsd: 0,
-    inputCostPerMillionTokens: 0,
-    outputCostPerMillionTokens: 0,
-    inputAudioCostPerMinute: 0,
-    outputAudioCostPerMinute: 0,
+    inputCostPerMillionTokens: 0.15,
+    outputCostPerMillionTokens: 0.60,
+    inputAudioCostPerMinute: 0.006,
+    outputAudioCostPerMinute: 0.024,
   },
   {
     id: 'bluesminds-gpt-4o-mini',
@@ -119,9 +119,28 @@ export const listAIProviders = async (): Promise<AIProviderConfig[]> => {
   const setting = await AppSetting.findOne({ key: KEY }).lean();
   const stored = Array.isArray(setting?.value) ? setting.value as AIProviderConfig[] : [];
   const missingDefaults = DEFAULT_PROVIDERS.filter(preset => !stored.some(provider => provider.id === preset.id));
-  if (!missingDefaults.length) return stored;
-
-  const providers = [...stored, ...missingDefaults.map(cloneProvider)];
+  let changed = missingDefaults.length > 0;
+  const providers = [
+    ...stored.map(provider => {
+      if (provider.id !== 'openai-default') return provider;
+      const hasNoRates = [provider.inputCostPerMillionTokens, provider.outputCostPerMillionTokens, provider.inputAudioCostPerMinute, provider.outputAudioCostPerMinute]
+        .every(value => Number(value || 0) === 0);
+      const needsRealtimeUpgrade = provider.realtimeModel === 'gpt-realtime-2.1' || !provider.realtimeModel;
+      if (!hasNoRates && !needsRealtimeUpgrade) return provider;
+      changed = true;
+      const preset = DEFAULT_PROVIDERS[0];
+      return {
+        ...provider,
+        realtimeModel: needsRealtimeUpgrade ? preset.realtimeModel : provider.realtimeModel,
+        inputCostPerMillionTokens: hasNoRates ? preset.inputCostPerMillionTokens : provider.inputCostPerMillionTokens,
+        outputCostPerMillionTokens: hasNoRates ? preset.outputCostPerMillionTokens : provider.outputCostPerMillionTokens,
+        inputAudioCostPerMinute: hasNoRates ? preset.inputAudioCostPerMinute : provider.inputAudioCostPerMinute,
+        outputAudioCostPerMinute: hasNoRates ? preset.outputAudioCostPerMinute : provider.outputAudioCostPerMinute,
+      };
+    }),
+    ...missingDefaults.map(cloneProvider),
+  ];
+  if (!changed) return stored;
   await AppSetting.findOneAndUpdate(
     { key: KEY },
     { $set: { value: providers } },

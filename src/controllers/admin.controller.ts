@@ -15,6 +15,7 @@ import {
   Scenario,
   Subscription,
   GemTransaction,
+  AIUsage,
   AIUsageEvent,
 } from '../models';
 import { generateToken } from '../utils/jwt';
@@ -254,6 +255,24 @@ export const getUserProgress = async (req: Request, res: Response): Promise<void
 export const getUserCalls = async (req: Request, res: Response): Promise<void> => {
   const calls = await CallSession.find({ userId: req.params.id, status: { $ne: 'started' } }).sort({ createdAt: -1 });
   res.json({ success: true, data: calls });
+};
+
+/** Clear only today's AI Talk counters for a user. This is intentionally
+ * scoped to talk calls/turns/minutes so an admin can recover a failed demo
+ * during testing without changing chat usage or monthly billing history. */
+export const resetUserAiTalkUsage = async (req: Request, res: Response): Promise<void> => {
+  const user = await User.exists({ _id: req.params.id });
+  if (!user) {
+    res.status(404).json({ success: false, message: 'User not found' });
+    return;
+  }
+  const date = new Date().toISOString().slice(0, 10);
+  await AIUsage.updateOne(
+    { userId: req.params.id, date },
+    { $set: { voiceCalls: 0, voiceTurns: 0, voiceSeconds: 0 } },
+    { upsert: true },
+  );
+  res.json({ success: true, message: "Today's AI Talk allowance was reset" });
 };
 
 export const getAllPayments = async (req: Request, res: Response): Promise<void> => {

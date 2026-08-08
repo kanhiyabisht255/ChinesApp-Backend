@@ -17,7 +17,7 @@ import { getAppConfig } from '../services/config.service';
 import { hasActivePremium } from '../services/entitlement.service';
 import { isRewardedContentType, rewardGrantAmount, rewardedUnlockIds } from '../services/reward.service';
 
-type RewardType = 'content' | 'voiceCall' | 'voiceTurn';
+type RewardType = 'content' | 'voiceCall' | 'voiceTurn' | 'talkMinutes' | 'chatMessages';
 
 const contentModels: Record<RewardedContentType, Model<any>> = {
   lesson: Lesson,
@@ -39,12 +39,33 @@ const utcDayStart = (): Date => {
 };
 
 const claimsToday = (userId: string): Promise<number> =>
-  RewardGrant.countDocuments({ userId, status: 'claimed', claimedAt: { $gte: utcDayStart() } });
+  RewardGrant.countDocuments({ userId, source: { $ne: 'gems' }, status: 'claimed', claimedAt: { $gte: utcDayStart() } });
+
+const rewardCategory = (rewardType: RewardType): 'content' | 'chat' | 'talk' => {
+  if (rewardType === 'content') return 'content';
+  if (rewardType === 'chatMessages') return 'chat';
+  return 'talk';
+};
+
+const claimsTodayForCategory = (userId: string, category: ReturnType<typeof rewardCategory>): Promise<number> => {
+  const rewardTypes = category === 'content'
+    ? ['content']
+    : category === 'chat'
+      ? ['chatMessages']
+      : ['voiceCall', 'voiceTurn', 'talkMinutes'];
+  return RewardGrant.countDocuments({ userId, source: { $ne: 'gems' }, status: 'claimed', rewardType: { $in: rewardTypes }, claimedAt: { $gte: utcDayStart() } });
+};
+
+const categoryLimit = (config: Awaited<ReturnType<typeof getAppConfig>>, category: ReturnType<typeof rewardCategory>): number => {
+  if (category === 'content') return config.ads.maxContentRewardedAdsPerDay ?? 5;
+  if (category === 'chat') return config.ads.maxChatRewardedAdsPerDay ?? 1;
+  return config.ads.maxTalkRewardedAdsPerDay ?? 2;
+};
 
 export const prepareReward = async (req: Request, res: Response): Promise<void> => {
   const userId = (req as AuthRequest).userId;
   const rewardType = String(req.body.rewardType || '') as RewardType;
-  if (!userId || !['content', 'voiceCall', 'voiceTurn'].includes(rewardType)) {
+  if (!userId || !['content', 'voiceCall', 'voiceTurn', 'talkMinutes', 'chatMessages'].includes(rewardType)) {
     res.status(400).json({ success: false, message: 'Valid reward type required' });
     return;
   }
@@ -62,8 +83,13 @@ export const prepareReward = async (req: Request, res: Response): Promise<void> 
     return;
   }
 
-  const usedToday = await claimsToday(userId);
-  if (usedToday >= config.ads.maxRewardedAdsPerDay) {
+  const category = rewardCategory(rewardType);
+  const [usedToday, totalUsedToday] = await Promise.all([
+    claimsTodayForCategory(userId, category),
+    claimsToday(userId),
+  ]);
+  const dailyCategoryLimit = categoryLimit(config, category);
+  if (usedToday >= dailyCategoryLimit || totalUsedToday >= config.ads.maxRewardedAdsPerDay) {
     res.status(429).json({ success: false, message: 'Daily rewarded-ad limit reached. Try again tomorrow or choose Premium.' });
     return;
   }
@@ -102,18 +128,23 @@ export const prepareReward = async (req: Request, res: Response): Promise<void> 
     if (unlocked.has(contentId)) {
       res.json({
         success: true,
-        data: { alreadyUnlocked: true, contentType, contentId, remainingToday: config.ads.maxRewardedAdsPerDay - usedToday },
+        data: { alreadyUnlocked: true, contentType, contentId, remainingToday: Math.max(0, dailyCategoryLimit - usedToday) },
       });
       return;
     }
   } else {
     const date = new Date().toISOString().slice(0, 10);
     const usage = await AIUsage.findOne({ userId, date }).lean();
-    const field = rewardType === 'voiceCall' ? 'voiceCalls' : 'voiceTurns';
-    const limit = rewardType === 'voiceCall'
-      ? config.monetization.freeVoiceCallsPerDay
-      : config.monetization.freeVoiceTurnsPerDay;
-    if (Number(usage?.[field] || 0) < limit) {
+    const quotaUsed = rewardType === 'talkMinutes'
+      ? Number(usage?.voiceCalls || 0) >= config.monetization.freeVoiceCallsPerDay
+        || Number(usage?.voiceTurns || 0) >= config.monetization.freeVoiceTurnsPerDay
+        || Number(usage?.voiceSeconds || 0) >= (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60
+      : rewardType === 'voiceCall'
+        ? Number(usage?.voiceCalls || 0) >= config.monetization.freeVoiceCallsPerDay
+        : rewardType === 'voiceTurn'
+          ? Number(usage?.voiceTurns || 0) >= config.monetization.freeVoiceTurnsPerDay
+          : Number(usage?.chatMessages || 0) >= (config.aiConfig.freeChatMessagesPerDay || 10);
+    if (!quotaUsed) {
       res.status(409).json({ success: false, message: 'Use your remaining free AI quota before watching an ad' });
       return;
     }
@@ -136,6 +167,7 @@ export const prepareReward = async (req: Request, res: Response): Promise<void> 
       contentType,
       contentId,
       status: 'pending',
+      source: 'ad',
       grantAmount,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
@@ -149,7 +181,7 @@ export const prepareReward = async (req: Request, res: Response): Promise<void> 
       contentType,
       contentId,
       grantAmount,
-      remainingToday: Math.max(0, config.ads.maxRewardedAdsPerDay - usedToday),
+      remainingToday: Math.max(0, dailyCategoryLimit - usedToday),
       unlockHours: rewardType === 'content' ? config.ads.contentUnlockHours : undefined,
     },
   });
@@ -195,12 +227,18 @@ export const claimReward = async (req: Request, res: Response): Promise<void> =>
         failure = 'not_found';
         return;
       }
-      const usedToday = await RewardGrant.countDocuments({
-        userId,
-        status: 'claimed',
-        claimedAt: { $gte: utcDayStart() },
-      }).session(session);
-      if (usedToday >= config.ads.maxRewardedAdsPerDay) {
+      const category = rewardCategory(pending.rewardType as RewardType);
+      const rewardTypes = category === 'content'
+        ? ['content']
+        : category === 'chat'
+          ? ['chatMessages']
+          : ['voiceCall', 'voiceTurn', 'talkMinutes'];
+      const [usedToday, totalUsedToday] = await Promise.all([
+        RewardGrant.countDocuments({ userId, source: { $ne: 'gems' }, status: 'claimed', rewardType: { $in: rewardTypes }, claimedAt: { $gte: utcDayStart() } }).session(session),
+        RewardGrant.countDocuments({ userId, source: { $ne: 'gems' }, status: 'claimed', claimedAt: { $gte: utcDayStart() } }).session(session),
+      ]);
+      const dailyCategoryLimit = categoryLimit(config, category);
+      if (usedToday >= dailyCategoryLimit || totalUsedToday >= config.ads.maxRewardedAdsPerDay) {
         failure = 'daily_limit';
         return;
       }
@@ -214,20 +252,32 @@ export const claimReward = async (req: Request, res: Response): Promise<void> =>
       pending.expiresAt = expiresAt;
       await pending.save({ session });
 
-      if (pending.rewardType === 'voiceCall' || pending.rewardType === 'voiceTurn') {
+      if (pending.rewardType === 'voiceCall' || pending.rewardType === 'voiceTurn' || pending.rewardType === 'talkMinutes' || pending.rewardType === 'chatMessages') {
         const date = now.toISOString().slice(0, 10);
-        const field = pending.rewardType === 'voiceCall' ? 'voiceCalls' : 'voiceTurns';
         const usage = await AIUsage.findOneAndUpdate(
           { userId, date },
           { $setOnInsert: { voiceCalls: 0, voiceTurns: 0, chatMessages: 0 } },
           { upsert: true, new: true, session },
         );
-        // Negative usage represents earned credits when the configured free limit is zero.
-        const nextUsage = Number(usage?.[field] || 0) - Number(pending.grantAmount || 1);
-        await AIUsage.updateOne({ _id: usage?._id }, { $set: { [field]: nextUsage } }, { session });
+        const amount = Number(pending.grantAmount || 1);
+        const current = (field: string) => Number((usage as any)?.[field] || 0);
+        const update: Record<string, number> = {};
+        if (pending.rewardType === 'voiceCall') {
+          update.voiceCalls = current('voiceCalls') - amount;
+          update.voiceSeconds = current('voiceSeconds') - Math.max(1, Math.round(config.ads.talkMinutesPerReward || 1)) * 60;
+        } else if (pending.rewardType === 'voiceTurn') {
+          update.voiceTurns = current('voiceTurns') - amount;
+        } else if (pending.rewardType === 'talkMinutes') {
+          update.voiceSeconds = current('voiceSeconds') - amount * 60;
+          update.voiceCalls = current('voiceCalls') - Math.max(1, Math.round(config.ads.voiceCallsPerReward));
+          update.voiceTurns = current('voiceTurns') - Math.max(1, Math.round(config.ads.voiceTurnsPerReward));
+        } else {
+          update.chatMessages = current('chatMessages') - amount;
+        }
+        await AIUsage.updateOne({ _id: usage?._id }, { $set: update }, { session });
       }
       claimed = pending.toObject();
-      remainingToday = Math.max(0, config.ads.maxRewardedAdsPerDay - usedToday - 1);
+      remainingToday = Math.max(0, dailyCategoryLimit - usedToday - 1);
     });
   } finally {
     await session.endSession();

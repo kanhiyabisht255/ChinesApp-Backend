@@ -15,11 +15,13 @@ export const isRewardedContentType = (value: unknown): value is RewardedContentT
   typeof value === 'string' && REWARDED_CONTENT_TYPES.includes(value as RewardedContentType);
 
 export const rewardGrantAmount = (
-  rewardType: 'content' | 'voiceCall' | 'voiceTurn',
-  config: { voiceCallsPerReward: number; voiceTurnsPerReward: number },
+  rewardType: 'content' | 'voiceCall' | 'voiceTurn' | 'talkMinutes' | 'chatMessages',
+  config: { voiceCallsPerReward: number; voiceTurnsPerReward: number; talkMinutesPerReward?: number; chatMessagesPerReward?: number },
 ): number => {
   if (rewardType === 'voiceCall') return Math.max(1, Math.round(config.voiceCallsPerReward));
   if (rewardType === 'voiceTurn') return Math.max(1, Math.round(config.voiceTurnsPerReward));
+  if (rewardType === 'talkMinutes') return Math.max(1, Math.round(config.talkMinutesPerReward || 1));
+  if (rewardType === 'chatMessages') return Math.max(1, Math.round(config.chatMessagesPerReward || 3));
   return 1;
 };
 

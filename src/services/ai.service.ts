@@ -3,7 +3,7 @@ import { getLanguageName, normalizeLanguageCode } from './localization.service';
 import { getAppConfig } from './config.service';
 import { getIntegrationSecret } from './integration-secrets.service';
 import { estimateProviderCost, selectAIProvider, selectAIProviders, type AIProviderConfig } from './ai-provider.service';
-import { recordAiUsageEvent } from './ai-usage.service';
+import { checkAiSpendBudget, recordAiUsageEvent } from './ai-usage.service';
 
 let openaiClient: OpenAI | null = null;
 let openaiClientKey = '';
@@ -54,6 +54,17 @@ export interface TutorOptions {
   inputAudioSeconds?: number;
 }
 
+const enforceSpendBudget = async (options: TutorOptions): Promise<void> => {
+  const budget = await checkAiSpendBudget(options.userId, Boolean(options.isPremium));
+  if (budget.allowed) return;
+  const message = budget.scope === 'global'
+    ? 'AI service is temporarily paused by the safety budget. Please try again later.'
+    : budget.scope === 'user_monthly'
+      ? 'Your monthly AI cost allowance is used. It will reset with your plan cycle.'
+      : 'Your AI cost allowance for today is used. Please try again after the daily reset.';
+  throw new AIServiceError(message, 'AI_BUDGET_LIMIT', 429);
+};
+
 const buildChineseSystemPrompt = (options: TutorOptions): string => {
   const languageCode = normalizeLanguageCode(options.nativeLanguage);
   const languageName = getLanguageName(languageCode);
@@ -90,6 +101,7 @@ export const generateAIResponse = async (
   options: TutorOptions = {}
 ): Promise<{ chinese: string; pinyin: string; english: string; correction?: string; feedback?: string }> => {
   try {
+    await enforceSpendBudget(options);
     const appConfig = await getAppConfig();
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: buildChineseSystemPrompt(options) },
@@ -190,6 +202,7 @@ export const transcribeAudio = async (
   mimeType = 'audio/mp4'
 ): Promise<string> => {
   try {
+    await enforceSpendBudget(options);
     const appConfig = await getAppConfig();
     const routed = await getOpenAI('talk_transcription');
     const transcription = await routed.client.audio.transcriptions.create({
@@ -212,6 +225,7 @@ export const transcribeAudio = async (
 
 export const generateSpeech = async (text: string, options: TutorOptions = {}): Promise<Buffer> => {
   try {
+    await enforceSpendBudget(options);
     const appConfig = await getAppConfig();
     const routed = await getOpenAI('talk_tts');
     const response = await routed.client.audio.speech.create({

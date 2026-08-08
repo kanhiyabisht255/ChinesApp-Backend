@@ -541,13 +541,14 @@ aiUsageSchema.index({ userId: 1, date: 1 }, { unique: true });
 const rewardGrantSchema = new Schema({
   rewardId: { type: String, required: true, unique: true, index: true },
   userId: { type: String, required: true, index: true },
-  rewardType: { type: String, enum: ['content', 'voiceCall', 'voiceTurn'], required: true },
-  contentType: { type: String, enum: ['lesson', 'reading', 'listening', 'vocabulary', 'scenario'] },
+  rewardType: { type: String, enum: ['content', 'voiceCall', 'voiceTurn', 'talkMinutes', 'chatMessages'], required: true },
+  contentType: { type: String, enum: ['lesson', 'reading', 'listening', 'vocabulary', 'story', 'scenario'] },
   contentId: { type: String, index: true },
   status: { type: String, enum: ['pending', 'claimed'], default: 'pending', index: true },
   grantAmount: { type: Number, default: 1, min: 1 },
   claimedAt: { type: Date, index: true },
   expiresAt: { type: Date, required: true, expires: 0 },
+  source: { type: String, enum: ['ad', 'gems'], default: 'ad', index: true },
 }, { timestamps: true });
 rewardGrantSchema.index({ userId: 1, contentType: 1, contentId: 1, status: 1, expiresAt: 1 });
 
@@ -608,6 +609,37 @@ const aiUsageEventSchema = new Schema({
 }, { timestamps: true });
 aiUsageEventSchema.index({ createdAt: -1 });
 export const AIUsageEvent = mongoose.model('AIUsageEvent', aiUsageEventSchema);
+
+// Product analytics intentionally stores event names and bounded, non-sensitive
+// properties only. Raw chat/audio payloads must never be sent to this collection.
+const appAnalyticsEventSchema = new Schema({
+  event: { type: String, required: true, trim: true, maxlength: 80, index: true },
+  userId: { type: String, index: true },
+  installationId: { type: String, trim: true, maxlength: 120, index: true },
+  platform: { type: String, enum: ['android', 'ios', 'web', 'unknown'], default: 'unknown', index: true },
+  appVersion: { type: String, trim: true, maxlength: 40 },
+  properties: { type: Schema.Types.Mixed, default: {} },
+}, { timestamps: true });
+appAnalyticsEventSchema.index({ createdAt: -1 });
+export const AppAnalyticsEvent = mongoose.model('AppAnalyticsEvent', appAnalyticsEventSchema);
+
+const realtimeSessionSchema = new Schema({
+  sessionId: { type: String, required: true, unique: true, index: true },
+  userId: { type: String, required: true, index: true },
+  provider: { type: String, default: 'openai' },
+  model: { type: String },
+  status: { type: String, enum: ['active', 'completed'], default: 'active', index: true },
+  maxSeconds: { type: Number, required: true, min: 1 },
+  startedAt: { type: Date, default: Date.now },
+  completedAt: { type: Date },
+  ledgerEventId: { type: Schema.Types.ObjectId, ref: 'AIUsageEvent' },
+  expiresAt: { type: Date, required: true, expires: 0 },
+}, { timestamps: true });
+realtimeSessionSchema.index(
+  { userId: 1, status: 1 },
+  { unique: true, partialFilterExpression: { status: 'active' } },
+);
+export const RealtimeSession = mongoose.model('RealtimeSession', realtimeSessionSchema);
 const mistakeMemorySchema = new Schema({
   userId: { type: String, required: true, index: true },
   normalized: { type: String, required: true },

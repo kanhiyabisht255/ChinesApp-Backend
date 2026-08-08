@@ -583,6 +583,9 @@ export interface AppConfig {
     realtimeTalkEnabled?: boolean;
     globalDailyBudgetUsd?: number;
     globalMonthlyBudgetUsd?: number;
+    freeUserDailyCostCapUsd?: number;
+    premiumUserDailyCostCapUsd?: number;
+    premiumUserMonthlyCostCapUsd?: number;
   };
   pricing: {
     monthly: number;
@@ -607,7 +610,12 @@ export interface AppConfig {
     interstitialAdUnitId: string;
     rewardedAdUnitId: string;
     maxRewardedAdsPerDay: number;
+    maxContentRewardedAdsPerDay?: number;
+    maxChatRewardedAdsPerDay?: number;
+    maxTalkRewardedAdsPerDay?: number;
     contentUnlockHours: number;
+    chatMessagesPerReward?: number;
+    talkMinutesPerReward?: number;
     voiceCallsPerReward: number;
     voiceTurnsPerReward: number;
     rewardedContentTypes: RewardedContentType[];

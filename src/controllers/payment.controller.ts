@@ -285,11 +285,19 @@ export const createGemOrder = async (req: Request, res: Response): Promise<void>
 };
 
 export const getPlans = async (req: Request, res: Response): Promise<void> => {
-  const pricing = (await getAppConfig()).pricing;
+  const config = await getAppConfig();
+  const pricing = config.pricing;
+  const talkMinutes = config.aiConfig.premiumTalkMinutesPerMonth || 300;
+  const chatReplies = config.aiConfig.premiumChatMessagesPerMonth || 1000;
+  const premiumFeatures = [
+    `${talkMinutes} AI Talk minutes per month`,
+    `${chatReplies} AI tutor replies per month`,
+    'All Premium courses, stories and scenarios',
+    'Ling Live, detailed feedback and no ads',
+  ];
   const plans = [
-    { id: 'monthly', name: 'Monthly', price: pricing.monthly, currency: 'INR', period: '/month', features: ['Unlimited AI calls and chat', 'All Premium scenarios and courses', 'No ads'] },
-    { id: 'yearly', name: 'Annual', price: pricing.yearly, currency: 'INR', period: '/year', discount: 'Best subscription value', features: ['Same Premium access as Monthly', 'Billed once per year', 'No ads'], isPopular: true },
-    { id: 'lifetime', name: 'Lifetime', price: pricing.lifetime, currency: 'INR', period: 'one-time', features: ['One-time purchase', 'Unlimited AI and Premium content', 'No recurring payment'], },
+    { id: 'monthly', name: 'Monthly', price: pricing.monthly, currency: 'INR', period: '/month', features: premiumFeatures },
+    { id: 'yearly', name: 'Annual', price: pricing.yearly, currency: 'INR', period: '/year', discount: 'Save versus monthly billing', features: premiumFeatures, isPopular: true },
   ];
   
   res.json({ success: true, data: plans });

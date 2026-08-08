@@ -17,7 +17,7 @@ const OPENAI_COMPATIBLE_TYPES: AIProviderType[] = ['openai', 'openrouter', 'groq
 const modelFor = (provider: AIProviderConfig, capability: AIProviderTestCapability): string => {
   if (capability === 'talk_transcription') return provider.transcriptionModel || 'gpt-4o-mini-transcribe';
   if (capability === 'talk_tts') return provider.ttsModel || 'gpt-4o-mini-tts';
-  if (capability === 'talk_realtime') return provider.realtimeModel || 'gpt-realtime-2.1';
+  if (capability === 'talk_realtime') return provider.realtimeModel || 'gpt-realtime-2.1-mini';
   return provider.chatModel || 'gpt-4o-mini';
 };
 

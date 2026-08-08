@@ -8,13 +8,13 @@ import {
 } from '../services/ai.service';
 import { createHash, randomUUID } from 'crypto';
 import mongoose from 'mongoose';
-import { User, Progress, CallSession, Scenario } from '../models';
+import { User, Progress, CallSession, Scenario, RealtimeSession, AIUsageEvent } from '../models';
 import type { AuthRequest, ITranscriptItem } from '../types';
 import { consumeAiQuota, hasActivePremium, refundAiQuota, getAiUsage, recordAiMinutes } from '../services/entitlement.service';
 import { getAppConfig } from '../services/config.service';
 import { getIntegrationSecret } from '../services/integration-secrets.service';
 import { estimateProviderCost, selectAIProvider } from '../services/ai-provider.service';
-import { recordAiUsageEvent } from '../services/ai-usage.service';
+import { checkAiSpendBudget, recordAiUsageEvent } from '../services/ai-usage.service';
 import { localWeekdayIndex, localWeekKey, normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
 import { buildVoiceCallContext, buildVoiceCallReport, type VoiceCallReport } from '../services/voice-session.service';
 import { hasContentAccess } from '../services/reward.service';
@@ -66,7 +66,11 @@ const enforceVoiceSessionAllowance = async (userId: string, activeCall: any): Pr
   const [user, config] = await Promise.all([User.findById(userId).lean(), getAppConfig()]);
   const premium = hasActivePremium(user);
   const usage = await getAiUsage(userId, premium);
-  const sessionCap = (premium ? (config.aiConfig.premiumTalkMinutesPerSession || 15) : (config.aiConfig.freeTalkMaxMinutesPerSession || 3)) * 60;
+  const baseFreeDailySeconds = (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60;
+  const rewardedBonusSeconds = premium ? 0 : Math.max(0, usage.talk.dailyLimitSeconds - baseFreeDailySeconds);
+  const sessionCap = premium
+    ? (config.aiConfig.premiumTalkMinutesPerSession || 15) * 60
+    : (config.aiConfig.freeTalkMaxMinutesPerSession || 3) * 60 + rewardedBonusSeconds;
   const elapsed = Math.floor((Date.now() - activeCall.createdAt.getTime()) / 1000);
   const remaining = Math.min(usage.talk.dailyLimitSeconds - usage.talk.usedSecondsToday, usage.talk.monthlyLimitSeconds == null ? Number.MAX_SAFE_INTEGER : usage.talk.monthlyLimitSeconds - usage.talk.usedSecondsMonth);
   if (elapsed >= sessionCap || remaining <= 0) throw new AIServiceError('AI Talk allowance reached. End this session or upgrade your plan.', 'AI_TALK_LIMIT', 429);
@@ -104,7 +108,11 @@ export const startVoiceCall = async (req: Request, res: Response): Promise<void>
     }
     const quota = await consumeAiQuota(authReq.userId, 'voiceCalls', activePremium);
     if (!quota.allowed) {
-      res.status(429).json({ success: false, message: 'Today\'s AI Talk allowance is used. Upgrade for a larger monthly allowance or wait for reset.', code: 'AI_TALK_LIMIT' });
+      res.status(429).json({
+        success: false,
+        message: 'Today\'s AI Talk demo is used. Upgrade for a larger allowance or wait for reset.',
+        code: 'AI_TALK_CALL_LIMIT',
+      });
       return;
     }
 
@@ -147,7 +155,7 @@ export const startVoiceCall = async (req: Request, res: Response): Promise<void>
         success: true,
         data: {
           sessionId,
-          scenarioId: scenario?._id.toString(),
+          scenarioId: scenario?._id.toString() || null,
           scenarioTitle: scenario?.title || scenarioTitle || 'Free Talk',
           message: 'Call session started',
           aiResponse,
@@ -417,7 +425,11 @@ export const endVoiceCall = async (req: Request, res: Response): Promise<void> =
       const premium = hasActivePremium(user);
       const usage = await getAiUsage(authReq.userId!, premium);
       const config = await getAppConfig();
-      const sessionCap = (premium ? (config.aiConfig.premiumTalkMinutesPerSession || 15) : (config.aiConfig.freeTalkMaxMinutesPerSession || 3)) * 60;
+      const baseFreeDailySeconds = (config.aiConfig.freeTalkDemoMinutesPerDay || 3) * 60;
+      const rewardedBonusSeconds = premium ? 0 : Math.max(0, usage.talk.dailyLimitSeconds - baseFreeDailySeconds);
+      const sessionCap = premium
+        ? (config.aiConfig.premiumTalkMinutesPerSession || 15) * 60
+        : (config.aiConfig.freeTalkMaxMinutesPerSession || 3) * 60 + rewardedBonusSeconds;
       const dailyRemaining = Math.max(0, usage.talk.dailyLimitSeconds - usage.talk.usedSecondsToday);
       const monthlyRemaining = usage.talk.monthlyLimitSeconds == null
         ? Number.MAX_SAFE_INTEGER
@@ -556,11 +568,21 @@ export const createRealtimeToken = async (req: Request, res: Response): Promise<
     if (!user) { res.status(404).json({ success: false, message: 'User not found' }); return; }
     if (!config.aiConfig.realtimeTalkEnabled) { res.status(503).json({ success: false, message: 'Live Realtime Talk is disabled' }); return; }
     if (!hasActivePremium(user)) { res.status(403).json({ success: false, message: 'Premium is required for Ling Live' }); return; }
+    const spendBudget = await checkAiSpendBudget(authReq.userId, true);
+    if (!spendBudget.allowed) { res.status(429).json({ success: false, message: 'Your AI cost allowance is used for this period.', code: 'AI_BUDGET_LIMIT' }); return; }
     const usage = await getAiUsage(authReq.userId!, true);
     if (usage.talk.dailyLimitSeconds <= usage.talk.usedSecondsToday || (usage.talk.monthlyLimitSeconds != null && usage.talk.monthlyLimitSeconds <= usage.talk.usedSecondsMonth)) { res.status(429).json({ success: false, message: 'Monthly AI Talk allowance reached', code: 'AI_TALK_LIMIT' }); return; }
+    const existingSession = await RealtimeSession.findOne({ userId: authReq.userId, status: 'active', expiresAt: { $gt: new Date() } }).lean();
+    if (existingSession) { res.status(409).json({ success: false, message: 'A Ling Live session is already active. End it before starting another.', code: 'AI_TALK_ACTIVE' }); return; }
+    await RealtimeSession.updateMany({ userId: authReq.userId, status: 'active', expiresAt: { $lte: new Date() } }, { $set: { status: 'completed', completedAt: new Date() } });
     const apiKey = provider?.apiKey || await getIntegrationSecret('OPENAI_API_KEY');
     if (!apiKey) { res.status(503).json({ success: false, message: 'Realtime provider is not configured' }); return; }
-    const model = provider?.realtimeModel || 'gpt-realtime-2.1';
+    const model = provider?.realtimeModel || 'gpt-realtime-2.1-mini';
+    const dailyRemaining = Math.max(0, usage.talk.dailyLimitSeconds - usage.talk.usedSecondsToday);
+    const monthlyRemaining = usage.talk.monthlyLimitSeconds == null
+      ? Number.MAX_SAFE_INTEGER
+      : Math.max(0, usage.talk.monthlyLimitSeconds - usage.talk.usedSecondsMonth);
+    const maxSeconds = Math.max(1, Math.min((config.aiConfig.premiumTalkMinutesPerSession || 15) * 60, dailyRemaining, monthlyRemaining));
     const scenario = await findScenario(typeof req.body?.scenarioId === 'string' ? req.body.scenarioId : undefined);
     const safetyIdentifier = createHash('sha256').update(`chinesapp:${authReq.userId}`).digest('hex');
     const baseUrl = (provider?.baseUrl || 'https://api.openai.com').replace(/\/v1\/?$/, '');
@@ -571,7 +593,37 @@ export const createRealtimeToken = async (req: Request, res: Response): Promise<
     });
     const payload = await upstream.json() as Record<string, unknown>;
     if (!upstream.ok) { res.status(502).json({ success: false, message: 'Realtime provider rejected the session' }); return; }
-    res.json({ success: true, data: { clientSecret: (payload.value as string) || (payload.client_secret as string), expiresAt: payload.expires_at, model, endpoint: `${baseUrl}/v1/realtime/calls` } });
+    const clientSecret = typeof payload.value === 'string'
+      ? payload.value
+      : typeof payload.client_secret === 'string'
+        ? payload.client_secret
+        : '';
+    if (!clientSecret) { res.status(502).json({ success: false, message: 'Realtime provider did not return a session secret' }); return; }
+    const sessionId = `live_${randomUUID()}`;
+    const conservativeOutputSeconds = maxSeconds;
+    const reservedCost = estimateProviderCost(provider, { inputAudioSeconds: maxSeconds, outputAudioSeconds: conservativeOutputSeconds });
+    const ledger = await AIUsageEvent.create({
+      userId: authReq.userId,
+      plan: 'premium',
+      feature: 'talk_realtime',
+      provider: provider?.id || 'openai',
+      model,
+      status: 'success',
+      inputAudioSeconds: maxSeconds,
+      outputAudioSeconds: conservativeOutputSeconds,
+      estimatedCostUsd: reservedCost,
+      metadata: { reserved: true, sessionId },
+    });
+    await RealtimeSession.create({
+      sessionId,
+      userId: authReq.userId,
+      provider: provider?.id || 'openai',
+      model,
+      maxSeconds,
+      ledgerEventId: ledger._id,
+      expiresAt: new Date(Date.now() + maxSeconds * 1000 + 10 * 60 * 1000),
+    });
+    res.json({ success: true, data: { clientSecret, expiresAt: payload.expires_at, model, endpoint: `${baseUrl}/v1/realtime/calls`, sessionId, maxSeconds } });
   } catch (error) {
     console.error('Realtime token error:', error);
     sendAIError(res, error, 'Unable to start Ling Live');
@@ -582,12 +634,35 @@ export const finishRealtimeSession = async (req: Request, res: Response): Promis
   const authReq = req as AuthRequest;
   const user = await User.findById(authReq.userId).lean();
   if (!user || !hasActivePremium(user)) { res.status(403).json({ success: false, message: 'Premium is required for Ling Live' }); return; }
-  const config = await getAppConfig();
-  const seconds = Math.max(0, Math.min(Number(req.body?.seconds) || 0, (config.aiConfig.premiumTalkMinutesPerSession || 15) * 60));
+  const sessionId = String(req.body?.sessionId || '');
+  const activeSession = await RealtimeSession.findOneAndUpdate(
+    { sessionId, userId: authReq.userId, status: 'active' },
+    { $set: { status: 'completed', completedAt: new Date() } },
+    { new: true },
+  );
+  if (!activeSession) {
+    res.json({ success: true, data: await getAiUsage(authReq.userId!, true) });
+    return;
+  }
+  const elapsed = Math.max(0, Math.floor((Date.now() - activeSession.startedAt.getTime()) / 1000));
+  const clientSeconds = Math.max(0, Number(req.body?.seconds) || 0);
+  const seconds = Math.max(0, Math.min(Math.max(clientSeconds, elapsed - 5), activeSession.maxSeconds));
   const selectedProvider = await selectAIProvider('talk_realtime');
   const provider = selectedProvider && ['openai', 'openrouter', 'groq', 'custom'].includes(selectedProvider.type) ? selectedProvider : null;
+  const reportedOutput = Math.max(0, Number(req.body?.outputSeconds) || 0);
+  const outputSeconds = Math.min(seconds, Math.max(reportedOutput, Math.floor(seconds * 0.4)));
   await recordAiMinutes(authReq.userId!, seconds);
-  await recordAiUsageEvent({ userId: authReq.userId, premium: true, feature: 'talk_realtime', provider: provider?.id || 'openai', model: provider?.realtimeModel || 'gpt-realtime-2.1', status: 'success', inputAudioSeconds: seconds, outputAudioSeconds: Math.max(0, Number(req.body?.outputSeconds) || 0), estimatedCostUsd: estimateProviderCost(provider, { inputAudioSeconds: seconds, outputAudioSeconds: Math.max(0, Number(req.body?.outputSeconds) || 0) }) });
+  await AIUsageEvent.updateOne(
+    { _id: activeSession.ledgerEventId },
+    { $set: {
+      provider: provider?.id || activeSession.provider,
+      model: provider?.realtimeModel || activeSession.model || 'gpt-realtime-2.1-mini',
+      inputAudioSeconds: seconds,
+      outputAudioSeconds: outputSeconds,
+      estimatedCostUsd: estimateProviderCost(provider, { inputAudioSeconds: seconds, outputAudioSeconds: outputSeconds }),
+      metadata: { reserved: false, sessionId, serverElapsedSeconds: elapsed },
+    } },
+  );
   res.json({ success: true, data: await getAiUsage(authReq.userId!, true) });
 };
 
