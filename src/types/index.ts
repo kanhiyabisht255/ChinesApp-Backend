@@ -60,6 +60,7 @@ export interface IProgress {
   wordsLearned: number;
   completedLessonIds: string[];
   lastLessonId?: string;
+  lastLessonCompletedAt?: Date;
   lastUpdated: Date;
 }
 

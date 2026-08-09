@@ -2,6 +2,42 @@ import { PLACEMENT_QUESTIONS } from '../content/placement';
 
 export type PlacementAnswer = { questionId: string; answer: string };
 export type ReviewRating = 'again' | 'hard' | 'good' | 'easy';
+export type TodayPlanPriority = 'primary' | 'review' | 'bonus';
+
+export interface TodayPlanCandidate extends Record<string, unknown> {
+  type: string;
+  isCompleted?: boolean;
+  estimatedMinutes?: number;
+}
+
+export const focusTodayPlan = (
+  candidates: TodayPlanCandidate[],
+  bonusTypeOrder: string[] = ['listening', 'reading', 'speaking'],
+) => {
+  const lesson = candidates.find(task => task.type === 'lesson');
+  const review = candidates.find(task => task.type === 'review');
+  const nonReview = candidates.filter(task => task.type !== 'lesson' && task.type !== 'review');
+  const orderedPractice = [...nonReview].sort((a, b) => {
+    const rank = (type: string) => {
+      const index = bonusTypeOrder.indexOf(type);
+      return index >= 0 ? index : bonusTypeOrder.length;
+    };
+    return rank(a.type) - rank(b.type);
+  });
+  const primary = lesson || orderedPractice.find(task => !task.isCompleted) || orderedPractice[0];
+  const bonus = orderedPractice.find(task => task !== primary && !task.isCompleted)
+    || orderedPractice.find(task => task !== primary);
+  const selected = [primary, review, bonus].filter(Boolean) as TodayPlanCandidate[];
+  const withPriority = (task: TodayPlanCandidate, priority: TodayPlanPriority) => ({ ...task, priority });
+  const tasks = selected.map(task => withPriority(
+    task,
+    task === primary ? 'primary' : task === review ? 'review' : 'bonus',
+  ));
+  const additionalTasks = candidates
+    .filter(task => !selected.includes(task))
+    .map(task => withPriority(task, task.type === 'review' ? 'review' : 'bonus'));
+  return { tasks, additionalTasks };
+};
 
 export const scorePlacementAnswers = (answers: PlacementAnswer[]) => {
   const answerMap = new Map(answers.map(item => [item.questionId, String(item.answer || '').trim()]));

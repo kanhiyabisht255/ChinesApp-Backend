@@ -1,5 +1,5 @@
 import { PLACEMENT_QUESTIONS } from '../src/content/placement';
-import { nextVocabularyReview, scorePlacementAnswers } from '../src/services/learning.service';
+import { focusTodayPlan, nextVocabularyReview, scorePlacementAnswers } from '../src/services/learning.service';
 
 describe('personalized learning services', () => {
   it('keeps the placement test balanced across HSK levels and localized', () => {
@@ -41,5 +41,32 @@ describe('personalized learning services', () => {
     expect(good.nextReviewAt.getTime()).toBeLessThan(easy.nextReviewAt.getTime());
     expect(again.mastery).toBe(1);
     expect(easy.mastery).toBe(4);
+  });
+
+  it('focuses the daily plan on one primary task, review, and optional practice', () => {
+    const result = focusTodayPlan([
+      { type: 'lesson', id: 'lesson-1', isCompleted: false },
+      { type: 'review', id: 'review', isCompleted: false },
+      { type: 'listening', id: 'listen-1', isCompleted: false },
+      { type: 'reading', id: 'read-1', isCompleted: false },
+      { type: 'speaking', id: 'speak-1', isCompleted: false },
+    ]);
+
+    expect(result.tasks.map(task => task.type)).toEqual(['lesson', 'review', 'listening']);
+    expect(result.tasks.map(task => task.priority)).toEqual(['primary', 'review', 'bonus']);
+    expect(result.additionalTasks.map(task => task.type)).toEqual(['reading', 'speaking']);
+  });
+
+  it('keeps today’s completed focus visible and chooses an unfinished bonus', () => {
+    const result = focusTodayPlan([
+      { type: 'lesson', id: 'lesson-1', isCompleted: true },
+      { type: 'review', id: 'review', isCompleted: true },
+      { type: 'listening', id: 'listen-1', isCompleted: false },
+      { type: 'reading', id: 'read-1', isCompleted: false },
+    ]);
+
+    expect(result.tasks[0]).toMatchObject({ type: 'lesson', priority: 'primary', isCompleted: true });
+    expect(result.tasks[1]).toMatchObject({ type: 'review', priority: 'review', isCompleted: true });
+    expect(result.tasks[2]).toMatchObject({ type: 'listening', priority: 'bonus' });
   });
 });

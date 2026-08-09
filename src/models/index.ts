@@ -142,6 +142,7 @@ const progressSchema = new Schema<IProgressDoc>({
   wordsLearned: { type: Number, default: 0 },
   completedLessonIds: [{ type: String }],
   lastLessonId: { type: String },
+  lastLessonCompletedAt: { type: Date },
   lastUpdated: { type: Date, default: Date.now },
 }, { timestamps: true });
 

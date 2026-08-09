@@ -237,6 +237,7 @@ export const completeLesson = async (req: Request, res: Response): Promise<void>
     lastUpdated: new Date(),
   };
   if (!alreadyCompleted) {
+    progressSet.lastLessonCompletedAt = new Date();
     const skillNames = ['speaking', 'tones', 'vocabulary', 'grammar', 'listening', 'reading'] as const;
     const practicedSkills = new Set<(typeof skillNames)[number]>();
     if ((lesson.vocab || []).length > 0) practicedSkills.add('vocabulary');

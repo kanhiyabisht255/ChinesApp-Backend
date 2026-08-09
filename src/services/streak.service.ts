@@ -14,6 +14,11 @@ export const normalizeTimezoneOffset = (value: unknown): number => {
 const localDayNumber = (date: Date, timezoneOffsetMinutes: number): number =>
   Math.floor((date.getTime() + normalizeTimezoneOffset(timezoneOffsetMinutes) * 60_000) / DAY_MS);
 
+export const localDayStart = (date: Date, timezoneOffsetMinutes: number): Date => {
+  const offset = normalizeTimezoneOffset(timezoneOffsetMinutes);
+  return new Date(localDayNumber(date, offset) * DAY_MS - offset * 60_000);
+};
+
 export const daysBetweenLocalDates = (
   previous: Date,
   current: Date,
