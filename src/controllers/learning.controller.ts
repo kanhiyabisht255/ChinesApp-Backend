@@ -194,8 +194,13 @@ export const getTodayPlan = async (req: Request, res: Response): Promise<void> =
 
   const dueProgress = await UserVocabularyProgress.find({
     userId: authReq.userId,
-    isLearned: true,
-    $or: [{ nextReviewAt: { $lte: now } }, { nextReviewAt: { $exists: false } }],
+    $or: [
+      {
+        isLearned: true,
+        $or: [{ nextReviewAt: { $lte: now } }, { nextReviewAt: { $exists: false } }],
+      },
+      { isFavorite: true },
+    ],
   }).select('wordId').limit(50).lean();
   const actualDueReviewCount = dueProgress.length;
   const newReviewCount = actualDueReviewCount > 0

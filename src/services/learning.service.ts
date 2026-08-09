@@ -4,6 +4,20 @@ export type PlacementAnswer = { questionId: string; answer: string };
 export type ReviewRating = 'again' | 'hard' | 'good' | 'easy';
 export type TodayPlanPriority = 'primary' | 'review' | 'bonus';
 
+export const stableDailyIndex = (
+  value: string,
+  dayKey: string,
+  size: number,
+): number => {
+  if (size <= 0) return -1;
+  let hash = 2166136261;
+  for (const char of `${value}:${dayKey}`) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % size;
+};
+
 export interface TodayPlanCandidate extends Record<string, unknown> {
   type: string;
   isCompleted?: boolean;

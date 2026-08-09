@@ -1,5 +1,5 @@
 import { PLACEMENT_QUESTIONS } from '../src/content/placement';
-import { focusTodayPlan, nextVocabularyReview, scorePlacementAnswers } from '../src/services/learning.service';
+import { focusTodayPlan, nextVocabularyReview, scorePlacementAnswers, stableDailyIndex } from '../src/services/learning.service';
 
 describe('personalized learning services', () => {
   it('keeps the placement test balanced across HSK levels and localized', () => {
@@ -68,5 +68,12 @@ describe('personalized learning services', () => {
     expect(result.tasks[0]).toMatchObject({ type: 'lesson', priority: 'primary', isCompleted: true });
     expect(result.tasks[1]).toMatchObject({ type: 'review', priority: 'review', isCompleted: true });
     expect(result.tasks[2]).toMatchObject({ type: 'listening', priority: 'bonus' });
+  });
+
+  it('selects the same daily item for a learner throughout the same day', () => {
+    expect(stableDailyIndex('learner-1', '2026-08-09', 10)).toBe(stableDailyIndex('learner-1', '2026-08-09', 10));
+    expect(stableDailyIndex('learner-1', '2026-08-09', 0)).toBe(-1);
+    expect(stableDailyIndex('learner-1', '2026-08-09', 10)).toBeGreaterThanOrEqual(0);
+    expect(stableDailyIndex('learner-1', '2026-08-09', 10)).toBeLessThan(10);
   });
 });

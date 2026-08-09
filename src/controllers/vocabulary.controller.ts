@@ -17,8 +17,8 @@ import {
   localizeVocabularyTopic,
   localizeVocabularyWord,
 } from '../services/localization.service';
-import { nextVocabularyReview, type ReviewRating } from '../services/learning.service';
-import { localWeekdayIndex, localWeekKey, normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
+import { nextVocabularyReview, stableDailyIndex, type ReviewRating } from '../services/learning.service';
+import { localDayStart, localWeekdayIndex, localWeekKey, normalizeTimezoneOffset, recordLearningActivity } from '../services/streak.service';
 
 const idOrSlugQuery = (value: string): Record<string, unknown> =>
   mongoose.isValidObjectId(value)
@@ -48,6 +48,86 @@ const progressFor = async (userId: string | undefined, wordIds: string[]) => {
   if (!userId || wordIds.length === 0) return new Map<string, Record<string, unknown>>();
   const progress = await UserVocabularyProgress.find({ userId, wordId: { $in: wordIds } }).lean();
   return new Map(progress.map(item => [item.wordId, item as unknown as Record<string, unknown>]));
+};
+
+export const getDailyVocabularyWord = async (req: Request, res: Response): Promise<void> => {
+  const authReq = req as AuthRequest;
+  const language = await getRequestLanguage(req);
+  const user = await User.findById(authReq.userId).lean();
+  if (!user) {
+    res.status(404).json({ success: false, message: 'User not found' });
+    return;
+  }
+
+  const premiumAccess = hasActivePremium(user);
+  const topicQuery = {
+    isPublished: true,
+    hskLevel: { $lte: Math.max(1, user.hskLevel) },
+    ...(premiumAccess ? {} : { isPremium: false }),
+  };
+  const topics = await VocabularyTopic.find(topicQuery).sort({ hskLevel: -1, order: 1 }).lean();
+  if (topics.length === 0) {
+    res.status(404).json({ success: false, message: 'Daily vocabulary is unavailable' });
+    return;
+  }
+
+  const topicIds = topics.map(topic => topic._id.toString());
+  const progress = await UserVocabularyProgress.find({ userId: authReq.userId }).lean();
+  const progressByWord = new Map(progress.map(item => [item.wordId, item]));
+  const now = new Date();
+  const dueIds = new Set(progress
+    .filter(item => item.isLearned && (!item.nextReviewAt || item.nextReviewAt <= now))
+    .map(item => item.wordId));
+  const favoriteIds = new Set(progress.filter(item => item.isFavorite).map(item => item.wordId));
+  const words = await VocabularyWord.find({
+    topicId: { $in: topicIds },
+    isPublished: true,
+    ...(premiumAccess ? {} : { isPremium: false }),
+  }).sort({ order: 1 }).lean();
+  if (words.length === 0) {
+    res.status(404).json({ success: false, message: 'Daily vocabulary is unavailable' });
+    return;
+  }
+
+  const learningGoal = user.learningGoal || 'general';
+  const goalKeywords: Record<string, RegExp> = {
+    travel: /travel|transport|direction|hotel|restaurant|shopping|food|place/i,
+    business: /business|work|office|meeting|professional|time/i,
+    hsk: /hsk|basic|number|time|family|daily|greeting/i,
+    culture: /culture|festival|food|family|people|place/i,
+  };
+  const topicById = new Map(topics.map(topic => [topic._id.toString(), topic]));
+  const matchesGoal = (word: (typeof words)[number]) => {
+    const topic = topicById.get(word.topicId);
+    const matcher = goalKeywords[learningGoal];
+    return matcher ? matcher.test(`${topic?.slug || ''} ${topic?.title || ''} ${topic?.description || ''}`) : false;
+  };
+  const pools = [
+    { reason: 'due_review', words: words.filter(word => dueIds.has(word._id.toString())) },
+    { reason: 'saved_word', words: words.filter(word => favoriteIds.has(word._id.toString()) && !dueIds.has(word._id.toString())) },
+    { reason: 'goal_match', words: words.filter(word => !progressByWord.get(word._id.toString())?.isLearned && matchesGoal(word)) },
+    { reason: 'level_match', words: words.filter(word => !progressByWord.get(word._id.toString())?.isLearned) },
+    { reason: 'practice_again', words },
+  ];
+  const selectedPool = pools.find(pool => pool.words.length > 0)!;
+  const timezoneOffset = normalizeTimezoneOffset(req.header('x-timezone-offset'));
+  const dayKey = localDayStart(now, timezoneOffset).toISOString().slice(0, 10);
+  const selected = selectedPool.words[stableDailyIndex(authReq.userId || 'learner', dayKey, selectedPool.words.length)];
+  const topic = topicById.get(selected.topicId);
+  const itemProgress = progressByWord.get(selected._id.toString());
+
+  res.json({
+    success: true,
+    data: {
+      ...localizeVocabularyWord(selected, language),
+      topicTitle: topic ? localizeVocabularyTopic(topic, language).title : '',
+      hskLevel: topic?.hskLevel || user.hskLevel,
+      reason: selectedPool.reason,
+      isLearned: itemProgress?.isLearned === true,
+      isFavorite: itemProgress?.isFavorite === true,
+      mastery: Number(itemProgress?.mastery || 0),
+    },
+  });
 };
 
 export const getVocabularyTopics = async (req: Request, res: Response): Promise<void> => {
@@ -159,8 +239,13 @@ export const getVocabularyReviewQueue = async (req: Request, res: Response): Pro
   const now = new Date();
   const dueProgress = await UserVocabularyProgress.find({
     userId,
-    isLearned: true,
-    $or: [{ nextReviewAt: { $lte: now } }, { nextReviewAt: { $exists: false } }],
+    $or: [
+      {
+        isLearned: true,
+        $or: [{ nextReviewAt: { $lte: now } }, { nextReviewAt: { $exists: false } }],
+      },
+      { isFavorite: true },
+    ],
   }).sort({ nextReviewAt: 1, lastReviewedAt: 1 }).limit(limit).lean();
   const dueIds = dueProgress.map(item => item.wordId);
   const dueWords = dueIds.length > 0
@@ -195,8 +280,13 @@ export const getVocabularyReviewQueue = async (req: Request, res: Response): Pro
   });
   const dueCount = await UserVocabularyProgress.countDocuments({
     userId,
-    isLearned: true,
-    $or: [{ nextReviewAt: { $lte: now } }, { nextReviewAt: { $exists: false } }],
+    $or: [
+      {
+        isLearned: true,
+        $or: [{ nextReviewAt: { $lte: now } }, { nextReviewAt: { $exists: false } }],
+      },
+      { isFavorite: true },
+    ],
   });
 
   res.json({
@@ -235,6 +325,7 @@ export const updateVocabularyProgress = async (req: Request, res: Response): Pro
     ? String(req.body.rating) as ReviewRating
     : null;
   const schedule = rating ? nextVocabularyReview(existing || {}, rating) : null;
+  const savedForReview = req.body.saveForReview === true;
   const isLearned = rating
     ? true
     : typeof req.body.isLearned === 'boolean' ? req.body.isLearned : existing?.isLearned || false;
@@ -257,6 +348,7 @@ export const updateVocabularyProgress = async (req: Request, res: Response): Pro
           easeFactor: schedule.easeFactor,
         } : {}),
         ...(reviewed ? { lastReviewedAt: new Date() } : {}),
+        ...(savedForReview && !existing?.nextReviewAt ? { nextReviewAt: new Date() } : {}),
       },
       ...(reviewed ? { $inc: { reviewCount: 1 } } : {}),
     },

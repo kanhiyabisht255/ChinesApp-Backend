@@ -7,12 +7,14 @@ import {
   getVocabularyWord,
   getVocabularyReviewQueue,
   completeVocabularyReview,
+  getDailyVocabularyWord,
   updateVocabularyProgress,
 } from '../controllers/vocabulary.controller';
 
 const router = Router();
 
 router.get('/topics', asyncHandler(optionalAuthMiddleware), asyncHandler(getVocabularyTopics));
+router.get('/daily', asyncHandler(authMiddleware), asyncHandler(getDailyVocabularyWord));
 router.get('/topics/:id', asyncHandler(optionalAuthMiddleware), asyncHandler(getVocabularyTopic));
 router.get('/words/:id', asyncHandler(optionalAuthMiddleware), asyncHandler(getVocabularyWord));
 router.get('/review', asyncHandler(authMiddleware), asyncHandler(getVocabularyReviewQueue));
