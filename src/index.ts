@@ -26,6 +26,7 @@ import learningRoutes from './routes/learning.routes';
 import listeningRoutes from './routes/listening.routes';
 import rewardRoutes from './routes/reward.routes';
 import narratedStoryRoutes from './routes/narrated-story.routes';
+import accountDeletionRoutes from './routes/account-deletion.routes';
 import { setupVoiceSocket } from './sockets/voice.socket';
 import { validateEnvironment } from './config/environment';
 import { syncVocabulary } from './services/vocabulary.service';
@@ -86,6 +87,7 @@ app.use('/api/learning', learningRoutes);
 app.use('/api/listening', listeningRoutes);
 app.use('/api/rewards', rewardRoutes);
 app.use('/api/stories', narratedStoryRoutes);
+app.use('/api/account-deletion', accountDeletionRoutes);
 
 app.get('/', (req, res) => {
   res.json({

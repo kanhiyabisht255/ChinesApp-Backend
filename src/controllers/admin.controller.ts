@@ -14,7 +14,6 @@ import {
   UserListeningProgress,
   Scenario,
   Subscription,
-  GemTransaction,
   AIUsage,
   AIUsageEvent,
 } from '../models';
@@ -34,6 +33,7 @@ import {
 import { deleteAIProvider, listAIProviders, providerSecretConfigured, saveAIProvider } from '../services/ai-provider.service';
 import { getMistakes } from '../services/mistake-memory.service';
 import { testAIProvider, type AIProviderTestCapability } from '../services/ai-provider-test.service';
+import { deleteUserAccount } from '../services/account-deletion.service';
 
 const slugify = (value: string): string => value
   .toLowerCase()
@@ -229,18 +229,12 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
 };
 
 export const deleteUser = async (req: Request, res: Response): Promise<void> => {
-  const user = await User.findByIdAndDelete(req.params.id);
-  if (!user) {
+  const deleted = await deleteUserAccount(req.params.id);
+  if (!deleted) {
     res.status(404).json({ success: false, message: 'User not found' });
     return;
   }
-  await Promise.all([
-    Progress.deleteOne({ userId: req.params.id }),
-    CallSession.deleteMany({ userId: req.params.id }),
-    Subscription.deleteMany({ userId: req.params.id }),
-    GemTransaction.deleteMany({ userId: req.params.id }),
-  ]);
-  res.json({ success: true, message: 'User deleted' });
+  res.json({ success: true, message: 'User account and associated data deleted' });
 };
 
 export const getUserProgress = async (req: Request, res: Response): Promise<void> => {

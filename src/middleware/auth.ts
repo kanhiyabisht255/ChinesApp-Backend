@@ -169,7 +169,10 @@ export const checkMaintenance = async (
     '/api/config',
     '/api/version',
     '/api/analytics/events',
-  ].includes(req.path) || req.path.startsWith('/api/admin');
+    '/api/user/account',
+  ].includes(req.path)
+    || req.path.startsWith('/api/admin')
+    || req.path.startsWith('/api/account-deletion');
   
   if (isMaintenance && !alwaysAvailable) {
     res.status(503).json({

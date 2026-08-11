@@ -1,15 +1,6 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
-import {
-  AIUsage,
-  CallSession,
-  ChatMessage,
-  GemTransaction,
-  Progress,
-  RewardGrant,
-  Subscription,
-  User,
-} from '../models';
+import { AIUsage, CallSession, GemTransaction, Progress, Subscription, User } from '../models';
 import type { AuthRequest } from '../types';
 import { normalizeLanguageCode } from '../services/localization.service';
 import { getAppConfig } from '../services/config.service';
@@ -20,6 +11,7 @@ import {
   visibleStreak,
   visibleTodayMinutes,
 } from '../services/streak.service';
+import { deleteUserAccount } from '../services/account-deletion.service';
 
 export const getProfile = async (req: Request, res: Response): Promise<void> => {
   const authReq = req as AuthRequest;
@@ -428,16 +420,7 @@ export const deleteAccount = async (req: Request, res: Response): Promise<void> 
     return;
   }
 
-  await Promise.all([
-    Progress.deleteMany({ userId }),
-    CallSession.deleteMany({ userId }),
-    ChatMessage.deleteMany({ userId }),
-    Subscription.deleteMany({ userId }),
-    GemTransaction.deleteMany({ userId }),
-    AIUsage.deleteMany({ userId }),
-    RewardGrant.deleteMany({ userId }),
-  ]);
-  const deleted = await User.findByIdAndDelete(userId);
+  const deleted = await deleteUserAccount(userId);
   if (!deleted) {
     res.status(404).json({ success: false, message: 'User not found' });
     return;
