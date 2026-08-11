@@ -75,6 +75,7 @@ export const uploadStoryAudio = async (file: Express.Multer.File, title: string)
   return {
     sourceAudioUrl: result.secure_url,
     audioUrl: delivery,
+    audioStorageProvider: 'cloudinary' as const,
     audioPublicId: result.public_id,
     audioFormat: deliveryFormat,
     audioBytes: Number(result.eager?.find(item => item.bytes)?.bytes || result.bytes || file.size),
