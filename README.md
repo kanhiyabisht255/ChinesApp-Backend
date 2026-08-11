@@ -1,6 +1,6 @@
-# ChinesApp Backend
+# Learn Chines Backend
 
-Backend API for ChinesApp - Chinese Learning Application
+Backend API for Learn Chines - Chinese Learning Application
 
 ## Tech Stack
 
@@ -139,7 +139,7 @@ npm run dev
 | `JWT_SECRET` | JWT signing secret |
 | `OTP_SECRET` | Email verification-code hashing secret |
 | `RESEND_API_KEY` | Resend API key used to send verification emails |
-| `EMAIL_FROM` | Verified sender, for example `ChinesApp <noreply@example.com>` |
+| `EMAIL_FROM` | Verified sender, for example `Learn Chines <noreply@example.com>` |
 | `OPENAI_API_KEY` | OpenAI API key |
 | `GOOGLE_CLIENT_ID` | Google OAuth web client ID used to verify ID tokens |
 | `GOOGLE_PLAY_PACKAGE_NAME` | Play Console Android package (`com.chinesapp.learn`) |

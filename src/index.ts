@@ -89,7 +89,7 @@ app.use('/api/stories', narratedStoryRoutes);
 
 app.get('/', (req, res) => {
   res.json({
-    message: 'ChinesApp Backend API',
+    message: 'Learn Chines Backend API',
     version: process.env.APP_VERSION || '1.0.0',
     endpoints: {
       auth: '/api/auth',

@@ -31,7 +31,7 @@ const sendVerificationEmail = async (email: string, code: string): Promise<void>
     return;
   }
 
-  const from = process.env.EMAIL_FROM?.trim() || 'ChinesApp <onboarding@resend.dev>';
+  const from = process.env.EMAIL_FROM?.trim() || 'Learn Chines <onboarding@resend.dev>';
   let response: globalThis.Response;
   try {
     response = await fetch('https://api.resend.com/emails', {
@@ -43,9 +43,9 @@ const sendVerificationEmail = async (email: string, code: string): Promise<void>
       body: JSON.stringify({
         from,
         to: [email],
-        subject: 'Verify your ChinesApp email',
-        text: `Your ChinesApp verification code is ${code}. It expires in 10 minutes.`,
-        html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:24px;color:#171717"><h2>Verify your ChinesApp email</h2><p>Enter this code in the app:</p><div style="font-size:32px;font-weight:700;letter-spacing:8px;padding:18px 0">${code}</div><p>This code expires in 10 minutes. If you did not request it, you can ignore this email.</p></div>`,
+        subject: 'Verify your Learn Chines email',
+        text: `Your Learn Chines verification code is ${code}. It expires in 10 minutes.`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:24px;color:#171717"><h2>Verify your Learn Chines email</h2><p>Enter this code in the app:</p><div style="font-size:32px;font-weight:700;letter-spacing:8px;padding:18px 0">${code}</div><p>This code expires in 10 minutes. If you did not request it, you can ignore this email.</p></div>`,
       }),
     });
   } catch {

@@ -21,7 +21,7 @@ export const checkVersion = async (req: Request, res: Response): Promise<void> =
 export const healthCheck = async (req: Request, res: Response): Promise<void> => {
   res.json({
     success: true,
-    message: 'ChinesApp Backend is running',
+    message: 'Learn Chines Backend is running',
     timestamp: new Date().toISOString(),
     version: process.env.APP_VERSION || '1.0.0',
   });
