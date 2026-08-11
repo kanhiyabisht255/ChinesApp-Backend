@@ -8,7 +8,7 @@ const DEFAULT_CONFIG: AppConfig = {
   minAppVersion: '1.0.0',
   forceUpdate: false,
   maintenanceMode: false,
-  supportEmail: 'support@chinesapp.com',
+  supportEmail: 'supportChines@cricjuno.com',
   features: {
     voiceCallEnabled: true,
     chatEnabled: true,
