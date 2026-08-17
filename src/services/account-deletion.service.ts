@@ -45,7 +45,7 @@ const sendDeletionCodeEmail = async (email: string, code: string): Promise<void>
     return;
   }
 
-  const from = process.env.EMAIL_FROM?.trim() || 'Learn Chines <onboarding@resend.dev>';
+  const from = process.env.EMAIL_FROM?.trim() || 'Learn Chinese <onboarding@resend.dev>';
   let response: globalThis.Response;
   try {
     response = await fetch('https://api.resend.com/emails', {
@@ -57,9 +57,9 @@ const sendDeletionCodeEmail = async (email: string, code: string): Promise<void>
       body: JSON.stringify({
         from,
         to: [email],
-        subject: 'Confirm deletion of your Learn Chines account',
-        text: `Your Learn Chines account deletion code is ${code}. It expires in 10 minutes. Entering this code on the deletion page permanently deletes your account and associated app data. If you did not request deletion, ignore this email.`,
-        html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#171717"><h2>Confirm account deletion</h2><p>Enter this code on the Learn Chines account deletion page:</p><div style="font-size:32px;font-weight:700;letter-spacing:8px;padding:18px 0">${code}</div><p>This code expires in 10 minutes. Confirming permanently deletes your account and associated app data. If you did not request deletion, ignore this email and your account will remain active.</p></div>`,
+        subject: 'Confirm deletion of your Learn Chinese account',
+        text: `Your Learn Chinese account deletion code is ${code}. It expires in 10 minutes. Entering this code on the deletion page permanently deletes your account and associated app data. If you did not request deletion, ignore this email.`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#171717"><h2>Confirm account deletion</h2><p>Enter this code on the Learn Chinese account deletion page:</p><div style="font-size:32px;font-weight:700;letter-spacing:8px;padding:18px 0">${code}</div><p>This code expires in 10 minutes. Confirming permanently deletes your account and associated app data. If you did not request deletion, ignore this email and your account will remain active.</p></div>`,
       }),
     });
   } catch {

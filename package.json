@@ -1,7 +1,7 @@
 {
   "name": "chinesapp-backend",
   "version": "1.0.0",
-  "description": "Backend for Learn Chines - Chinese Learning App",
+  "description": "Backend for Learn Chinese - Chinese Learning App",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",

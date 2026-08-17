@@ -11,6 +11,10 @@ import {
   normalizeEmail,
   verifyEmailCode,
 } from '../services/email-verification.service';
+import {
+  issuePasswordResetCode,
+  verifyPasswordResetCode,
+} from '../services/password-reset.service';
 import { normalizeTimezoneOffset, visibleStreak, visibleTodayMinutes } from '../services/streak.service';
 
 const passwordIsValid = (value: unknown): value is string =>
@@ -176,6 +180,56 @@ export const verifyEmailAndLogin = async (req: Request, res: Response): Promise<
   user.emailVerified = true;
   await user.save();
   await issueAuthResponse(res, user, 'Email verified successfully');
+};
+
+export const requestPasswordReset = async (req: Request, res: Response): Promise<void> => {
+  const email = normalizeEmail(req.body?.email);
+  if (!email) {
+    res.status(400).json({ success: false, message: 'Enter a valid email address' });
+    return;
+  }
+
+  await issuePasswordResetCode(email);
+  res.json({
+    success: true,
+    message: 'If an account exists for this email, a password reset code has been sent.',
+    data: { email },
+  });
+};
+
+export const resetPassword = async (req: Request, res: Response): Promise<void> => {
+  const email = normalizeEmail(req.body?.email);
+  const code = String(req.body?.code || '').trim();
+  const newPassword = req.body?.newPassword;
+  if (!email || !/^\d{6}$/.test(code)) {
+    res.status(400).json({ success: false, message: 'Enter a valid email and the 6-digit reset code' });
+    return;
+  }
+  if (!passwordIsValid(newPassword)) {
+    res.status(400).json({ success: false, message: 'New password must be 8 to 128 characters' });
+    return;
+  }
+
+  const verification = await verifyPasswordResetCode(email, code);
+  if (!verification.valid) {
+    res.status(400).json({ success: false, message: verification.message });
+    return;
+  }
+
+  const user = await User.findOne({ email }).select('+passwordHash');
+  if (!user) {
+    res.status(404).json({ success: false, message: 'Account not found. Create an account first.' });
+    return;
+  }
+
+  user.passwordHash = await bcrypt.hash(newPassword, 12);
+  user.emailVerified = true;
+  await user.save();
+
+  res.json({
+    success: true,
+    message: 'Password reset successfully. Sign in with your new password.',
+  });
 };
 
 export const loginWithEmail = async (req: Request, res: Response): Promise<void> => {

@@ -28,5 +28,7 @@ Thumbs.db
 coverage/
 
 # Misc
+*.backup
+*.tsbuildinfo
 *.tgz
 .npmrc

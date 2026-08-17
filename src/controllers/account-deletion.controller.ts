@@ -17,7 +17,7 @@ export const requestAccountDeletion = async (req: Request, res: Response): Promi
   await issueAccountDeletionCode(email);
   res.json({
     success: true,
-    message: 'If a Learn Chines account exists for this email, a deletion code has been sent.',
+    message: 'If a Learn Chinese account exists for this email, a deletion code has been sent.',
     data: { email },
   });
 };
@@ -45,6 +45,6 @@ export const confirmAccountDeletion = async (req: Request, res: Response): Promi
 
   res.json({
     success: true,
-    message: 'Your Learn Chines account and associated app data have been permanently deleted.',
+    message: 'Your Learn Chinese account and associated app data have been permanently deleted.',
   });
 };

@@ -569,6 +569,13 @@ const accountDeletionCodeSchema = new Schema({
   expiresAt: { type: Date, required: true, expires: 0 },
 }, { timestamps: true });
 
+const passwordResetCodeSchema = new Schema({
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
+  otpHash: { type: String, required: true },
+  attempts: { type: Number, default: 0 },
+  expiresAt: { type: Date, required: true, expires: 0 },
+}, { timestamps: true });
+
 export const User = mongoose.model<IUserDoc>('User', userSchema);
 export const Progress = mongoose.model<IProgressDoc>('Progress', progressSchema);
 export const CallSession = mongoose.model<ICallSessionDoc>('CallSession', callSessionSchema);
@@ -665,3 +672,4 @@ export const MistakeMemory = mongoose.model('MistakeMemory', mistakeMemorySchema
 export const RewardGrant = mongoose.model('RewardGrant', rewardGrantSchema);
 export const EmailVerificationCode = mongoose.model('EmailVerificationCode', emailVerificationCodeSchema);
 export const AccountDeletionCode = mongoose.model('AccountDeletionCode', accountDeletionCodeSchema);
+export const PasswordResetCode = mongoose.model('PasswordResetCode', passwordResetCodeSchema);

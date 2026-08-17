@@ -91,7 +91,7 @@ app.use('/api/account-deletion', accountDeletionRoutes);
 
 app.get('/', (req, res) => {
   res.json({
-    message: 'Learn Chines Backend API',
+    message: 'Learn Chinese Backend API',
     version: process.env.APP_VERSION || '1.0.0',
     endpoints: {
       auth: '/api/auth',
