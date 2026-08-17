@@ -26,7 +26,9 @@ export const errorHandler = (
     message = 'A record with this value already exists';
   } else if (mongoError.name === 'ValidationError' || mongoError.name === 'CastError' || mongoError.name === 'MulterError') {
     statusCode = 400;
-  } else if (statusCode >= 500 && process.env.NODE_ENV === 'production') {
+  } else if (statusCode === 500 && process.env.NODE_ENV === 'production') {
+    // Only mask genuine internal errors. Intentional 503s (e.g. "email could
+    // not be sent") carry user-facing messages and must not be hidden.
     message = 'Internal server error';
   }
 
